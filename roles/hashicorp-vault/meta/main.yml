@@ -1,0 +1,15 @@
+---
+galaxy_info:
+  role_name: hashicorp_vault
+  namespace: infrastructure
+  author: infrastructure
+  description: Install and configure single-node or three-node HashiCorp Vault with integrated Raft storage.
+  license: MIT
+  min_ansible_version: "2.13"
+  platforms:
+    - name: EL
+      versions:
+        - "7"
+        - "8"
+        - "9"
+dependencies: []

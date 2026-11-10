@@ -1,0 +1,7 @@
+---
+- name: Install and initialize a persistent test Vault on RED OS 8 without TLS
+  hosts: vault
+  become: true
+  gather_facts: true
+  roles:
+    - role: hashicorp-vault

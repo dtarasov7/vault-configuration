@@ -1,0 +1,31 @@
+[Unit]
+Description=HashiCorp Vault
+Documentation=https://developer.hashicorp.com/vault/docs
+Requires=network-online.target
+After=network-online.target
+ConditionFileNotEmpty={{ hashicorp_vault_config_dir }}/vault.hcl
+
+[Service]
+User={{ hashicorp_vault_user }}
+Group={{ hashicorp_vault_group }}
+EnvironmentFile=-{{ hashicorp_vault_environment_file }}
+ExecStart={{ hashicorp_vault_executable_path }} server -config={{ hashicorp_vault_config_dir }}/vault.hcl
+ExecReload=/bin/kill --signal HUP $MAINPID
+KillMode=process
+KillSignal=SIGINT
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths={{ hashicorp_vault_data_dir }} {{ hashicorp_vault_log_dir }}
+NoNewPrivileges=true
+{% if not hashicorp_vault_disable_mlock | bool %}
+CapabilityBoundingSet=CAP_IPC_LOCK
+AmbientCapabilities=CAP_IPC_LOCK
+LimitMEMLOCK=infinity
+{% endif %}
+
+[Install]
+WantedBy=multi-user.target

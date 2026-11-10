@@ -1,0 +1,24 @@
+---
+- name: Prepare an isolated dev Vault fixture
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+  - name: Wait for the dev API
+    ansible.builtin.uri:
+      url: http://127.0.0.1:18210/v1/sys/health
+    register: vault_configuration_health
+    until: vault_configuration_health.status == 200
+    retries: 30
+    delay: 1
+  - name: Prepare userpass outside the role
+    ansible.builtin.uri:
+      url: http://127.0.0.1:18210/v1/sys/auth/userpass
+      method: POST
+      headers:
+        X-Vault-Token: molecule-test-only-token
+      body_format: json
+      body:
+        type: userpass
+      status_code: 204
+    no_log: true

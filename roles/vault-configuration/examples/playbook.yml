@@ -1,0 +1,9 @@
+---
+- name: Configure one Vault from one execution host
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files:
+    - inventory.yml
+  roles:
+    - role: vault-configuration

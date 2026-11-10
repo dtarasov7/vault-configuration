@@ -1,0 +1,187 @@
+---
+- name: init.yml - Inspect initialization output directory on controller
+  ansible.builtin.stat:
+    path: "{{ hashicorp_vault_init_output_path | dirname }}"
+  delegate_to: localhost
+  become: false
+  run_once: true
+  register: hashicorp_vault_init_directory
+  when: hashicorp_vault_initialize | bool
+
+- name: init.yml - Require initialization output parent to be a directory
+  ansible.builtin.assert:
+    that:
+      - not hashicorp_vault_init_directory.stat.exists or hashicorp_vault_init_directory.stat.isdir
+    quiet: true
+  run_once: true
+  when: hashicorp_vault_initialize | bool
+
+- name: init.yml - Create missing private initialization output directory on controller
+  ansible.builtin.file:
+    path: "{{ hashicorp_vault_init_output_path | dirname }}"
+    state: directory
+    mode: '0700'
+  delegate_to: localhost
+  become: false
+  run_once: true
+  when:
+    - hashicorp_vault_initialize | bool
+    - not hashicorp_vault_init_directory.stat.exists
+
+- name: init.yml - Check whether Vault is initialized
+  ansible.builtin.uri:
+    url: "{{ 'https' if hashicorp_vault_tls_enabled | bool else 'http' }}://{{ hostvars[groups[hashicorp_vault_cluster_group][0]].hashicorp_vault_api_address | default(groups[hashicorp_vault_cluster_group][0]) }}:{{ hashicorp_vault_api_port }}/v1/sys/init"
+    method: GET
+    validate_certs: "{{ hashicorp_vault_api_validate_certs }}"
+    return_content: true
+    status_code: 200
+  delegate_to: "{{ groups[hashicorp_vault_cluster_group][0] }}"
+  run_once: true
+  register: hashicorp_vault_init_status
+  when: hashicorp_vault_initialize | bool
+
+- name: init.yml - Check protected initialization output on controller
+  ansible.builtin.stat:
+    path: "{{ hashicorp_vault_init_output_path }}"
+  delegate_to: localhost
+  become: false
+  run_once: true
+  register: hashicorp_vault_init_output
+  when: hashicorp_vault_initialize | bool
+
+- name: init.yml - Refuse to lose access to initialized Vault
+  ansible.builtin.fail:
+    msg: >-
+      Vault is already initialized, but {{ hashicorp_vault_init_output_path }} is absent on the
+      Ansible controller. Restore the protected initialization file or disable automatic unseal.
+  run_once: true
+  when:
+    - hashicorp_vault_initialize | bool
+    - hashicorp_vault_init_status.json.initialized | bool
+    - hashicorp_vault_auto_unseal_after_init | bool
+    - not hashicorp_vault_init_output.stat.exists
+
+- name: init.yml - Initialize Vault with five shares and threshold two
+  ansible.builtin.uri:
+    url: "{{ 'https' if hashicorp_vault_tls_enabled | bool else 'http' }}://{{ hostvars[groups[hashicorp_vault_cluster_group][0]].hashicorp_vault_api_address | default(groups[hashicorp_vault_cluster_group][0]) }}:{{ hashicorp_vault_api_port }}/v1/sys/init"
+    method: PUT
+    body_format: json
+    body: >-
+      {{
+        {
+          'secret_shares': hashicorp_vault_key_shares | int,
+          'secret_threshold': hashicorp_vault_key_threshold | int
+        }
+      }}
+    validate_certs: "{{ hashicorp_vault_api_validate_certs }}"
+    return_content: true
+    status_code: 200
+  delegate_to: "{{ groups[hashicorp_vault_cluster_group][0] }}"
+  delegate_facts: true
+  run_once: true
+  register: hashicorp_vault_init_result
+  no_log: "{{ hashicorp_vault_no_log }}"
+  when:
+    - hashicorp_vault_initialize | bool
+    - not hashicorp_vault_init_status.json.initialized | bool
+
+- name: init.yml - Save initialization material on controller
+  ansible.builtin.copy:
+    content: "{{ hashicorp_vault_init_result.json | to_nice_json }}\n"
+    dest: "{{ hashicorp_vault_init_output_path }}"
+    owner: "{{ hashicorp_vault_init_output_owner }}"
+    group: "{{ hashicorp_vault_init_output_group }}"
+    mode: "0600"
+  delegate_to: localhost
+  become: false
+  run_once: true
+  no_log: "{{ hashicorp_vault_no_log }}"
+  when:
+    - hashicorp_vault_initialize | bool
+    - hashicorp_vault_init_result is not skipped
+
+- name: init.yml - Read initialization material from controller
+  ansible.builtin.slurp:
+    src: "{{ hashicorp_vault_init_output_path }}"
+  delegate_to: localhost
+  become: false
+  run_once: true
+  register: hashicorp_vault_init_material_file
+  no_log: "{{ hashicorp_vault_no_log }}"
+  when:
+    - hashicorp_vault_initialize | bool
+    - hashicorp_vault_auto_unseal_after_init | bool
+
+- name: init.yml - Make initialization material available to Vault hosts
+  ansible.builtin.set_fact:
+    hashicorp_vault_init_material: "{{ hashicorp_vault_init_material_file.content | b64decode | from_json }}"
+  no_log: "{{ hashicorp_vault_no_log }}"
+  when:
+    - hashicorp_vault_initialize | bool
+    - hashicorp_vault_auto_unseal_after_init | bool
+
+- name: init.yml - Read leader seal status before cluster join
+  ansible.builtin.uri:
+    url: "{{ 'https' if hashicorp_vault_tls_enabled | bool else 'http' }}://{{ hostvars[groups[hashicorp_vault_cluster_group][0]].hashicorp_vault_api_address | default(groups[hashicorp_vault_cluster_group][0]) }}:{{ hashicorp_vault_api_port }}/v1/sys/seal-status"
+    method: GET
+    validate_certs: "{{ hashicorp_vault_api_validate_certs }}"
+    return_content: true
+    status_code: 200
+  delegate_to: "{{ groups[hashicorp_vault_cluster_group][0] }}"
+  run_once: true
+  register: hashicorp_vault_leader_seal_status
+  when:
+    - hashicorp_vault_initialize | bool
+    - hashicorp_vault_auto_unseal_after_init | bool
+
+- name: init.yml - Unseal leader before followers join
+  ansible.builtin.uri:
+    url: "{{ 'https' if hashicorp_vault_tls_enabled | bool else 'http' }}://{{ hostvars[groups[hashicorp_vault_cluster_group][0]].hashicorp_vault_api_address | default(groups[hashicorp_vault_cluster_group][0]) }}:{{ hashicorp_vault_api_port }}/v1/sys/unseal"
+    method: PUT
+    body_format: json
+    body:
+      key: "{{ item }}"
+    validate_certs: "{{ hashicorp_vault_api_validate_certs }}"
+    status_code: 200
+  loop: "{{ hashicorp_vault_init_material.keys_base64[:hashicorp_vault_key_threshold | int] }}"
+  delegate_to: "{{ groups[hashicorp_vault_cluster_group][0] }}"
+  run_once: true
+  no_log: "{{ hashicorp_vault_no_log }}"
+  when:
+    - hashicorp_vault_initialize | bool
+    - hashicorp_vault_auto_unseal_after_init | bool
+    - hashicorp_vault_leader_seal_status.json.sealed | bool
+
+- name: init.yml - Read seal status
+  ansible.builtin.uri:
+    url: "{{ 'https' if hashicorp_vault_tls_enabled | bool else 'http' }}://{{ hashicorp_vault_api_address }}:{{ hashicorp_vault_api_port }}/v1/sys/seal-status"
+    method: GET
+    validate_certs: "{{ hashicorp_vault_api_validate_certs }}"
+    return_content: true
+    status_code: 200
+  register: hashicorp_vault_seal_status
+  retries: 30
+  delay: 2
+  until:
+    - hashicorp_vault_seal_status.status == 200
+    - hashicorp_vault_seal_status.json.initialized | default(false) | bool
+  when:
+    - hashicorp_vault_initialize | bool
+    - hashicorp_vault_auto_unseal_after_init | bool
+
+- name: init.yml - Unseal Vault with the minimum two key shares
+  ansible.builtin.uri:
+    url: "{{ 'https' if hashicorp_vault_tls_enabled | bool else 'http' }}://{{ hashicorp_vault_api_address }}:{{ hashicorp_vault_api_port }}/v1/sys/unseal"
+    method: PUT
+    body_format: json
+    body:
+      key: "{{ item }}"
+    validate_certs: "{{ hashicorp_vault_api_validate_certs }}"
+    return_content: true
+    status_code: 200
+  loop: "{{ hashicorp_vault_init_material.keys_base64[:hashicorp_vault_key_threshold | int] }}"
+  no_log: "{{ hashicorp_vault_no_log }}"
+  when:
+    - hashicorp_vault_initialize | bool
+    - hashicorp_vault_auto_unseal_after_init | bool
+    - hashicorp_vault_seal_status.json.sealed | bool

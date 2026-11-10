@@ -1,0 +1,21 @@
+---
+hashicorp_vault_install_method: package
+hashicorp_vault_package_name: vault
+# The API role currently validates server versions 2.0.0 and 2.0.4.
+hashicorp_vault_package_version: '2.0.4'
+hashicorp_vault_versionlock: true
+
+hashicorp_vault_cluster_group: vault
+hashicorp_vault_cluster_name: redos8-lab
+hashicorp_vault_api_address: "{{ vault_lab_server_address }}"
+hashicorp_vault_bind_address: 0.0.0.0
+hashicorp_vault_api_port: 8200
+hashicorp_vault_cluster_port: 8201
+hashicorp_vault_tls_enabled: false
+
+hashicorp_vault_initialize: true
+hashicorp_vault_key_shares: 5
+hashicorp_vault_key_threshold: 2
+hashicorp_vault_auto_unseal_after_init: true
+hashicorp_vault_init_output_path: "{{ vault_lab_init_file }}"
+hashicorp_vault_no_log: true

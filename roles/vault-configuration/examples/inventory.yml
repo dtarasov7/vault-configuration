@@ -1,0 +1,100 @@
+---
+vault_configuration_config_schema_version: 1
+vault_configuration_config_mode: dry
+vault_configuration_config_report_destination: "{{ (inventory_dir ~ '/vault-dry-result.yml') if vault_configuration_config_mode == 'dry' else omit }}"
+vault_configuration_config_compatibility_profile: community-validated
+vault_configuration_config_connection_address: https://vault.example.org:8200
+vault_configuration_config_connection_validate_tls: true
+vault_configuration_config_connection_ca_file: /etc/ansible/certs/vault-ca.pem
+vault_configuration_config_connection_timeout_seconds: 30
+vault_configuration_config_mounts:
+- certs
+- infra
+- apps
+- cicd
+- users
+vault_configuration_config_management_owner: platform-team
+vault_configuration_config_management_policy_prefix: vam-platform-
+vault_configuration_config_management_state_file: /var/lib/ansible/vault-access/platform-state.json
+vault_configuration_config_management_prune: false
+vault_configuration_config_management_prune_identities: false
+vault_configuration_config_management_adoption: []
+vault_configuration_token: "{{ vault_admin_automation_token }}"
+vault_configuration_passwords:
+  alice: "{{ vault_alice_password }}"
+vault_configuration_users:
+  - id: alice
+    name: alice
+    source: userpass
+    auth_mount: userpass
+    login: alice
+    password_revision: initial-1
+    password_policy: on_revision
+    token_parameters:
+      token_ttl: 900
+      token_max_ttl: 3600
+  - id: bob
+    name: bob
+    source: external
+    aliases:
+      - auth_mount: oidc
+        name: immutable-idp-subject-bob
+vault_configuration_groups:
+  - id: payments-dev
+    name: payments-dev
+    type: internal
+    members: [alice, bob]
+    member_groups: []
+  - id: sre-prod
+    name: sre-prod
+    type: external
+    alias:
+      auth_mount: oidc
+      name: sre-prod-idp-group
+vault_configuration_auth_roles:
+  - id: ansible
+    type: approle
+    auth_mount: approle
+    name: ansible-prod
+  - id: ssi-payments-prod
+    type: kubernetes
+    auth_mount: kubernetes-prod
+    name: ssi-payments-prod
+  - id: gitlab-payments
+    type: jwt
+    auth_mount: jwt-gitlab
+    name: payments-build
+vault_configuration_grants:
+  - id: project-only
+    subjects: [{kind: group, id: payments-dev}]
+    paths:
+      - {mount: infra, path: payments/postgres, scope: subtree, permissions: [read]}
+  - id: shared-dns
+    subjects: [{kind: group, id: sre-prod}]
+    paths:
+      - {mount: infra, path: prod/shared/dns, scope: exact, permissions: [read]}
+  - id: payments-dev
+    subjects: [{kind: group, id: payments-dev}]
+    paths:
+      - {mount: apps, path: payments/dev, scope: subtree, permissions: [read, write, list]}
+      - {mount: apps, path: dev/payments, scope: subtree, permissions: [read, write]}
+  - id: certificate
+    subjects: [{kind: auth_role, id: ansible}]
+    paths:
+      - {mount: certs, path: prod/payments/ingress, scope: exact, permissions: [read]}
+  - id: ssi
+    subjects: [{kind: auth_role, id: ssi-payments-prod}]
+    paths:
+      - {mount: apps, path: payments/prod, scope: subtree, permissions: [read]}
+  - id: pipeline
+    subjects: [{kind: auth_role, id: gitlab-payments}]
+    paths:
+      - {mount: cicd, path: payments/build, scope: subtree, permissions: [read]}
+  - id: company-policy
+    subjects: [{kind: user, id: alice}]
+    existing_policies: [company-self-service]
+vault_configuration_personal_access:
+  enabled: true
+  mount: users
+  subjects: [{kind: user, id: alice}, {kind: user, id: bob}]
+  permissions: [read, write, list, delete_latest]

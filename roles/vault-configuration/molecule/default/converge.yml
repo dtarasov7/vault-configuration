@@ -1,0 +1,32 @@
+---
+- name: Converge the API-only role
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    vault_configuration_config_mode: apply
+    vault_configuration_config_compatibility_profile: community-candidate
+    vault_configuration_config_connection_address: http://127.0.0.1:18210
+    vault_configuration_config_connection_allow_insecure_http: true
+    vault_configuration_config_management_owner: molecule
+    vault_configuration_config_management_policy_prefix: vam-molecule-
+    vault_configuration_config_management_state_file: '{{ lookup(''env'', ''MOLECULE_EPHEMERAL_DIRECTORY'')
+      }}/registry/state.json'
+    vault_configuration_token: molecule-test-only-token
+    vault_configuration_passwords: {alice: molecule-test-only-password}
+    vault_configuration_users:
+      - {id: alice, name: alice, source: userpass, auth_mount: userpass, login: alice, password_revision: r1}
+    vault_configuration_groups:
+      - {id: developers, name: developers, type: internal, members: [alice]}
+    vault_configuration_grants:
+      - id: production
+        subjects: [{kind: group, id: developers}]
+        paths:
+          - {mount: apps, path: payments/prod, scope: subtree, permissions: [read, list]}
+    vault_configuration_personal_access:
+      enabled: true
+      mount: users
+      subjects: [{kind: user, id: alice}]
+      permissions: [read, write, list]
+  roles:
+    - role: vault-configuration

@@ -1,0 +1,59 @@
+---
+# Flat role settings; override each variable independently in inventory.
+vault_configuration_config_schema_version: 1
+vault_configuration_config_mode: dry
+# Inventory may override the full path/name. Ordinary dry saves a YAML report.
+# Other modes keep report output opt-in.
+vault_configuration_config_report_destination: "{{ (playbook_dir ~ '/vault-configuration-' ~ inventory_hostname ~ '-dry.yml') if vault_configuration_config_mode == 'dry' else omit }}"
+vault_configuration_config_compatibility_profile: community-validated
+vault_configuration_config_connection_validate_tls: true
+vault_configuration_config_connection_timeout_seconds: 30
+vault_configuration_config_connection_allow_insecure_http: false
+vault_configuration_config_connection_address: https://vault.example.org:8200
+vault_configuration_config_mounts:
+- certs
+- infra
+- apps
+- cicd
+- users
+vault_configuration_config_management_prune: false
+vault_configuration_config_management_prune_identities: false
+vault_configuration_config_management_adoption: []
+vault_configuration_config_management_deletion_approvals: []
+vault_configuration_config_management_owner: platform-team
+vault_configuration_config_management_policy_prefix: vam-platform-
+vault_configuration_config_management_state_file: /var/lib/ansible/vault-access/platform-state.json
+vault_configuration_config_safety_max_deletions: 5
+vault_configuration_config_safety_allow_empty_desired: false
+vault_configuration_config_safety_allow_mount_root: false
+vault_configuration_config_safety_allow_destructive_grants: false
+vault_configuration_config_safety_protected_policies:
+- root
+- default
+vault_configuration_config_safety_protected_entities: []
+vault_configuration_config_safety_protected_groups: []
+
+# One existing administrative token for every API operation in dry/apply/export.
+# Supply through Ansible Vault or variables; root is only needed to provision it once.
+# No login, token switching or renewal is performed by this role.
+vault_configuration_token: ""
+vault_configuration_passwords: {}
+vault_configuration_ldap_passwords: {}
+# Optional lookups belong here/in inventory, never in tasks. No lookup plugin is required:
+# vault_configuration_hashi_vault_path_password: "secret=automation/data/vault-access"
+# vault_configuration_token: "{{ lookup('community.hashi_vault.hashi_vault', vault_configuration_hashi_vault_path_password + ':token') }}"
+# vault_configuration_passwords:
+#   alice: "{{ lookup('community.hashi_vault.hashi_vault', vault_configuration_hashi_vault_path_password + ':alice') }}"
+# TLS uses pre-existing execution-host CA/client certificate files. The role issues no certificates.
+vault_configuration_execution_host: localhost
+vault_configuration_export:
+  scope: managed
+  destination: ./vault-access-manager-export.yml
+  allow_partial: false
+
+# Omit vault_configuration_ldap to preserve existing LDAP/AD integrations.
+# vault_configuration_ldap_passwords:
+#   corporate-ad: "{{ vault_ad_bind_password }}"
+# Optional external lookup belongs in variables, never in task files:
+# vault_configuration_ldap_passwords:
+#   corporate-ad: "{{ lookup('community.hashi_vault.hashi_vault', vault_configuration_hashi_vault_path_password + ':ad-bind') }}"

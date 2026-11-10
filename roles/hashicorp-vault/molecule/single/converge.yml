@@ -1,0 +1,14 @@
+---
+- name: Converge single-node Vault
+  hosts: vault
+  gather_facts: true
+  vars:
+    hashicorp_vault_install_method: package
+    hashicorp_vault_package_version: 2.0.1-1.el7
+    hashicorp_vault_cluster_group: vault
+    hashicorp_vault_api_address: "{{ inventory_hostname }}"
+    hashicorp_vault_api_validate_certs: false
+    hashicorp_vault_init_output_path: /tmp/molecule-vault-single-init.json
+    hashicorp_vault_init_output_owner: "{{ lookup('env', 'USER') }}"
+  roles:
+    - role: hashicorp-vault

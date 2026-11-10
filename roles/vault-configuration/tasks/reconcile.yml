@@ -1,0 +1,16 @@
+---
+- name: reconcile.yml - Plan or apply desired Vault configuration
+  vault_configuration:
+    passwords: '{{ vault_configuration_passwords }}'
+    ldap_passwords: '{{ vault_configuration_ldap_passwords }}'
+    users: '{{ vault_configuration_users | default(omit) }}'
+    groups: '{{ vault_configuration_groups | default(omit) }}'
+    grants: '{{ vault_configuration_grants | default(omit) }}'
+    auth_roles: '{{ vault_configuration_auth_roles | default(omit) }}'
+    personal_access: '{{ vault_configuration_personal_access | default(omit) }}'
+    ldap: '{{ vault_configuration_ldap | default(omit) }}'
+  delegate_to: '{{ vault_configuration_execution_host }}'
+  register: vault_configuration_result
+  no_log: true
+  ignore_errors: true
+  changed_when: false

@@ -1,0 +1,15 @@
+---
+- name: Prepare a real three-node Raft cluster
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Initialize, join and unseal test nodes outside the role
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ molecule_scenario_directory }}/fixture.py"
+          - prepare
+          - "{{ lookup('env', 'MOLECULE_EPHEMERAL_DIRECTORY') }}"
+      changed_when: true
+      no_log: true

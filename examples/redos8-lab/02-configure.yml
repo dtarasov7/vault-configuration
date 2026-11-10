@@ -1,0 +1,7 @@
+---
+- name: Configure local users, groups and TCP LDAP on the test Vault
+  hosts: vault
+  gather_facts: false
+  become: false
+  roles:
+    - role: vault-configuration

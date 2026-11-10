@@ -1,0 +1,23 @@
+---
+- name: Destroy only this scenario's test containers
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Remove the scenario containers
+      community.docker.docker_container:
+        name: "{{ item.name }}"
+        state: absent
+        force_kill: true
+      loop: "{{ molecule_yml.platforms }}"
+      loop_control:
+        label: "{{ item.name }}"
+    - name: Remove the test network when unused
+      community.docker.docker_network:
+        name: vault-configuration-molecule
+        state: absent
+    - name: Clear local test inventory
+      ansible.builtin.copy:
+        content: "[]\n"
+        dest: "{{ molecule_instance_config }}"
+        mode: '0600'

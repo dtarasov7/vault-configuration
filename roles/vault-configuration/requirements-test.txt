@@ -1,0 +1,4 @@
+-r requirements.txt
+molecule==4.0.4
+molecule-plugins==23.0.0
+# Docker scenarios additionally use pre-installed ansible.posix and community.docker collections.

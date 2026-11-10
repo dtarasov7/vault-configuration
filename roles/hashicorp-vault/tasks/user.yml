@@ -1,0 +1,16 @@
+---
+- name: user.yml - Create Vault system group
+  ansible.builtin.group:
+    name: "{{ hashicorp_vault_group }}"
+    system: true
+    state: present
+
+- name: user.yml - Create Vault system user
+  ansible.builtin.user:
+    name: "{{ hashicorp_vault_user }}"
+    group: "{{ hashicorp_vault_group }}"
+    home: "{{ hashicorp_vault_data_dir }}"
+    shell: /sbin/nologin
+    system: true
+    create_home: false
+    state: present

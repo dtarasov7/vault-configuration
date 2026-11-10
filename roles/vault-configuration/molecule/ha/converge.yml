@@ -1,0 +1,7 @@
+---
+- name: Converge access on the active Raft node
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files: [vars.yml]
+  roles: [vault-configuration]

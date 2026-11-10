@@ -1,0 +1,84 @@
+---
+vault_configuration_execution_host: localhost
+vault_configuration_config_mode: apply
+vault_configuration_config_report_destination: "{{ (vault_lab_state_dir ~ '/dry-result.yml') if vault_configuration_config_mode == 'dry' else omit }}"
+vault_configuration_config_connection_address: "{{ vault_lab_vault_url }}"
+vault_configuration_config_connection_allow_insecure_http: true
+vault_configuration_config_management_owner: redos8-lab
+vault_configuration_config_management_policy_prefix: vam-redos8-lab-
+vault_configuration_config_management_state_file: "{{ vault_lab_state_dir }}/registry/redos8-lab.json"
+vault_configuration_config_mounts:
+  - certs
+  - infra
+  - apps
+  - cicd
+  - users
+
+vault_configuration_users:
+  - id: local-alice
+    name: local-alice
+    source: userpass
+    auth_mount: userpass
+    login: local-alice
+    password_revision: initial-1
+  - id: local-bob
+    name: local-bob
+    source: userpass
+    auth_mount: userpass
+    login: local-bob
+    password_revision: initial-1
+
+vault_configuration_ldap:
+  - id: test-ldap
+    auth_mount: ldap
+    bind_password_revision: initial-1
+    allow_insecure_ldap: true
+    config:
+      url: "{{ vault_lab_ldap_url }}"
+      binddn: "cn=vault,ou=service,{{ vault_lab_ldap_base_dn }}"
+      userdn: "ou=people,{{ vault_lab_ldap_base_dn }}"
+      userattr: uid
+      groupdn: "ou=groups,{{ vault_lab_ldap_base_dn }}"
+      groupattr: cn
+      groupfilter: "{{ '(&(objectClass=groupOfNames)(member={{.UserDN}}))' }}"
+      starttls: false
+      username_as_alias: true
+      case_sensitive_names: false
+
+vault_configuration_groups:
+  - id: local-developers
+    name: local-developers
+    type: internal
+    members: [local-alice]
+  - id: local-operators
+    name: local-operators
+    type: internal
+    members: [local-bob]
+  - id: ldap-developers
+    name: ldap-developers
+    type: external
+    alias: {auth_mount: ldap, name: developers}
+  - id: ldap-operators
+    name: ldap-operators
+    type: external
+    alias: {auth_mount: ldap, name: operators}
+
+vault_configuration_grants:
+  - id: developers-apps
+    subjects:
+      - {kind: group, id: local-developers}
+      - {kind: group, id: ldap-developers}
+    paths:
+      - mount: apps
+        path: payments/dev
+        scope: subtree
+        permissions: [read, write, list]
+  - id: operators-infra
+    subjects:
+      - {kind: group, id: local-operators}
+      - {kind: group, id: ldap-operators}
+    paths:
+      - mount: infra
+        path: prod
+        scope: subtree
+        permissions: [read, list]

@@ -1,0 +1,49 @@
+ui = {{ hashicorp_vault_ui | bool | lower }}
+disable_mlock = {{ hashicorp_vault_disable_mlock | bool | lower }}
+cluster_name = "{{ hashicorp_vault_cluster_name }}"
+log_level = "{{ hashicorp_vault_log_level }}"
+
+{% if hashicorp_vault_telemetry_enabled | bool %}
+telemetry {
+  prometheus_retention_time = "{{ hashicorp_vault_prometheus_retention_time }}"
+  disable_hostname = {{ hashicorp_vault_telemetry_disable_hostname | bool | lower }}
+}
+{% endif %}
+
+api_addr = "{{ 'https' if hashicorp_vault_tls_enabled | bool else 'http' }}://{{ hashicorp_vault_api_address }}:{{ hashicorp_vault_api_port }}"
+cluster_addr = "{{ 'https' if hashicorp_vault_tls_enabled | bool else 'http' }}://{{ hashicorp_vault_api_address }}:{{ hashicorp_vault_cluster_port }}"
+
+listener "tcp" {
+  address = "{{ hashicorp_vault_bind_address }}:{{ hashicorp_vault_api_port }}"
+  cluster_address = "{{ hashicorp_vault_bind_address }}:{{ hashicorp_vault_cluster_port }}"
+{% if hashicorp_vault_tls_enabled | bool %}
+  tls_disable = false
+  tls_cert_file = "{{ hashicorp_vault_tls_dir }}/{{ hashicorp_vault_certfile | basename }}"
+  tls_key_file = "{{ hashicorp_vault_tls_dir }}/{{ hashicorp_vault_cerkeyfile | basename }}"
+  tls_client_ca_file = "{{ hashicorp_vault_tls_dir }}/{{ hashicorp_vault_cacertfile | basename }}"
+{% else %}
+  tls_disable = true
+{% endif %}
+{% if hashicorp_vault_telemetry_enabled | bool %}
+  telemetry {
+    unauthenticated_metrics_access = {{ hashicorp_vault_unauthenticated_metrics_access | bool | lower }}
+  }
+{% endif %}
+}
+
+storage "raft" {
+  path = "{{ hashicorp_vault_data_dir }}"
+  node_id = "{{ inventory_hostname }}"
+{% if groups[hashicorp_vault_cluster_group] | length == 3 %}
+{% for peer in groups[hashicorp_vault_cluster_group] if peer != inventory_hostname %}
+  retry_join {
+    leader_api_addr = "{{ 'https' if hashicorp_vault_tls_enabled | bool else 'http' }}://{{ hostvars[peer].hashicorp_vault_api_address | default(peer) }}:{{ hashicorp_vault_api_port }}"
+{% if hashicorp_vault_tls_enabled | bool %}
+    leader_ca_cert_file = "{{ hashicorp_vault_tls_dir }}/{{ hashicorp_vault_cacertfile | basename }}"
+    leader_client_cert_file = "{{ hashicorp_vault_tls_dir }}/{{ hashicorp_vault_certfile | basename }}"
+    leader_client_key_file = "{{ hashicorp_vault_tls_dir }}/{{ hashicorp_vault_cerkeyfile | basename }}"
+{% endif %}
+  }
+{% endfor %}
+{% endif %}
+}

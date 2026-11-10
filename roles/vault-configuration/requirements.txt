@@ -1,0 +1,5 @@
+# The API client uses the standard library; Ansible runs on the execution host.
+ansible-core==2.13.13; python_version == '3.8'
+# Exports and dry reports are serialized as YAML on the execution host.
+PyYAML==6.0.2
+# Other Python/Ansible combinations must be validated before adding them to the matrix.

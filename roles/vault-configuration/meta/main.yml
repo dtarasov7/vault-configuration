@@ -1,0 +1,13 @@
+---
+galaxy_info:
+  namespace: vault_configuration
+  role_name: vault_configuration
+  author: vault-configuration maintainers
+  description: Declarative Vault Community identity and KV v2 ACL management through HTTPS API
+  license: MIT
+  min_ansible_version: '2.13'
+  platforms:
+    - name: GenericLinux
+      versions: [all]
+  galaxy_tags: [vault, security, identity]
+dependencies: []

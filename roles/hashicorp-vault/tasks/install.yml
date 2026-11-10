@@ -1,0 +1,102 @@
+---
+- name: install.yml - Install required packages
+  ansible.builtin.package:
+    name: "{{ hashicorp_vault_required_packages }}"
+    state: present
+
+- name: install.yml - Create Vault directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ hashicorp_vault_user }}"
+    group: "{{ hashicorp_vault_group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - path: "{{ hashicorp_vault_config_dir }}"
+      mode: "0750"
+    - path: "{{ hashicorp_vault_data_dir }}"
+      mode: "0700"
+    - path: "{{ hashicorp_vault_log_dir }}"
+      mode: "0750"
+    - path: "{{ hashicorp_vault_log_archive_dir }}"
+      mode: "0750"
+    - path: "{{ hashicorp_vault_tls_dir }}"
+      mode: "0700"
+  loop_control:
+    label: "{{ item.path }}"
+
+- name: install.yml - Install Vault from the RedOS repository
+  ansible.builtin.package:
+    name: >-
+      {{ hashicorp_vault_package_name }}{{
+        ('-' + hashicorp_vault_package_version) if hashicorp_vault_package_version | length > 0 else ''
+      }}
+    state: present
+  when: hashicorp_vault_install_method == 'package'
+
+- name: install.yml - Select versionlock plugin package
+  ansible.builtin.set_fact:
+    hashicorp_vault_versionlock_package: >-
+      {{ 'python3-dnf-plugin-versionlock' if ansible_pkg_mgr in ['dnf', 'dnf5'] else 'yum-plugin-versionlock' }}
+    hashicorp_vault_package_manager_command: >-
+      {{ 'dnf' if ansible_pkg_mgr in ['dnf', 'dnf5'] else 'yum' }}
+  when:
+    - hashicorp_vault_install_method == 'package'
+    - hashicorp_vault_versionlock | bool
+
+- name: install.yml - Install versionlock plugin
+  ansible.builtin.package:
+    name: "{{ hashicorp_vault_versionlock_package }}"
+    state: present
+  when:
+    - hashicorp_vault_install_method == 'package'
+    - hashicorp_vault_versionlock | bool
+
+- name: install.yml - List locked package versions
+  ansible.builtin.command:
+    cmd: "{{ hashicorp_vault_package_manager_command }} versionlock list"
+  changed_when: false
+  register: hashicorp_vault_versionlock_list
+  when:
+    - hashicorp_vault_install_method == 'package'
+    - hashicorp_vault_versionlock | bool
+
+- name: install.yml - Lock installed Vault package version
+  ansible.builtin.command:
+    cmd: >-
+      {{ hashicorp_vault_package_manager_command }}
+      versionlock add {{ hashicorp_vault_package_name }}
+  changed_when: true
+  when:
+    - hashicorp_vault_install_method == 'package'
+    - hashicorp_vault_versionlock | bool
+    - hashicorp_vault_package_name not in hashicorp_vault_versionlock_list.stdout
+
+- name: install.yml - Install Vault from role binary
+  ansible.builtin.copy:
+    src: "{{ hashicorp_vault_binary_file }}"
+    dest: "{{ hashicorp_vault_binary_path }}"
+    owner: root
+    group: root
+    mode: "0755"
+    remote_src: "{{ hashicorp_vault_binary_remote_src }}"
+  notify: hashicorp_vault_restart
+  when: hashicorp_vault_install_method == 'binary'
+
+- name: install.yml - Resolve installed executable path
+  ansible.builtin.set_fact:
+    hashicorp_vault_executable_path: >-
+      {{ hashicorp_vault_binary_path if hashicorp_vault_install_method == 'binary' else '/usr/bin/vault' }}
+
+- name: install.yml - Verify Vault executable
+  ansible.builtin.stat:
+    path: "{{ hashicorp_vault_executable_path }}"
+  register: hashicorp_vault_executable
+
+- name: install.yml - Require executable file with execute permission
+  ansible.builtin.assert:
+    that:
+      - hashicorp_vault_executable.stat.exists
+      - hashicorp_vault_executable.stat.isreg
+      - hashicorp_vault_executable.stat.executable
+    fail_msg: "Vault executable {{ hashicorp_vault_executable_path }} is missing or is not executable."

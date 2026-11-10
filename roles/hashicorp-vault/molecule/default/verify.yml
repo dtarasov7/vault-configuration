@@ -1,0 +1,127 @@
+---
+- name: Verify three-node Vault cluster
+  hosts: vault
+  gather_facts: true
+  vars:
+    vault_scheme: http
+    vault_port: 8200
+    vault_init_file: /tmp/molecule-vault-cluster-init.json
+  tasks:
+    - name: verify.yml - Read protected initialization material
+      ansible.builtin.slurp:
+        src: "{{ vault_init_file }}"
+      delegate_to: localhost
+      run_once: true
+      register: vault_init_raw
+      no_log: true
+
+    - name: verify.yml - Decode root token
+      ansible.builtin.set_fact:
+        vault_test_token: "{{ (vault_init_raw.content | b64decode | from_json).root_token }}"
+      no_log: true
+
+    - name: verify.yml - Check service state
+      ansible.builtin.systemd:
+        name: vault
+      register: vault_service
+      failed_when: vault_service.status.ActiveState != 'active'
+
+    - name: verify.yml - Check every node is initialized and unsealed
+      ansible.builtin.uri:
+        url: "{{ vault_scheme }}://{{ inventory_hostname }}:{{ vault_port }}/v1/sys/seal-status"
+        method: GET
+        status_code: 200
+        return_content: true
+      register: vault_seal_status
+      retries: 15
+      delay: 2
+      until:
+        - vault_seal_status.json.initialized | bool
+        - not vault_seal_status.json.sealed | bool
+
+    - name: verify.yml - Check Prometheus metrics endpoint on every node
+      ansible.builtin.uri:
+        url: "{{ vault_scheme }}://{{ inventory_hostname }}:{{ vault_port }}/v1/sys/metrics?format=prometheus"
+        method: GET
+        status_code: 200
+        return_content: true
+      register: vault_prometheus_metrics
+      failed_when:
+        - "'vault_core_unsealed' not in vault_prometheus_metrics.content"
+        - "'vault_runtime_' not in vault_prometheus_metrics.content"
+
+    - name: verify.yml - Enable a KV version 2 secrets engine
+      ansible.builtin.uri:
+        url: "{{ vault_scheme }}://vault1:{{ vault_port }}/v1/sys/mounts/molecule"
+        method: POST
+        headers:
+          X-Vault-Token: "{{ vault_test_token }}"
+        body_format: json
+        body:
+          type: kv
+          options:
+            version: "2"
+        status_code:
+          - 204
+          - 400
+      run_once: true
+      no_log: true
+
+    - name: verify.yml - Write test data
+      ansible.builtin.uri:
+        url: "{{ vault_scheme }}://vault1:{{ vault_port }}/v1/molecule/data/health"
+        method: POST
+        headers:
+          X-Vault-Token: "{{ vault_test_token }}"
+        body_format: json
+        body:
+          data:
+            value: before-failure
+        status_code: 200
+      run_once: true
+      no_log: true
+
+    - name: verify.yml - Stop one follower
+      ansible.builtin.systemd:
+        name: vault
+        state: stopped
+      delegate_to: vault3
+      run_once: true
+
+    - name: verify.yml - Write data while one node is unavailable
+      ansible.builtin.uri:
+        url: "{{ vault_scheme }}://vault1:{{ vault_port }}/v1/molecule/data/health"
+        method: POST
+        headers:
+          X-Vault-Token: "{{ vault_test_token }}"
+        body_format: json
+        body:
+          data:
+            value: after-failure
+        status_code: 200
+      run_once: true
+      register: vault_write_after_failure
+      retries: 10
+      delay: 2
+      until: vault_write_after_failure.status == 200
+      no_log: true
+
+    - name: verify.yml - Read data while one node is unavailable
+      ansible.builtin.uri:
+        url: "{{ vault_scheme }}://vault1:{{ vault_port }}/v1/molecule/data/health"
+        method: GET
+        headers:
+          X-Vault-Token: "{{ vault_test_token }}"
+        status_code: 200
+        return_content: true
+      run_once: true
+      register: vault_read_after_failure
+      failed_when: vault_read_after_failure.json.data.data.value != 'after-failure'
+      no_log: true
+
+    - name: verify.yml - Restart stopped follower
+      ansible.builtin.systemd:
+        name: vault
+        state: started
+      delegate_to: vault3
+      run_once: true

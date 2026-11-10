@@ -1,0 +1,11 @@
+---
+- name: ssl-pre-req.yml - Validate certificate content
+  ansible.builtin.assert:
+    that:
+      - item.content | trim | length > 0
+    fail_msg: Certificate {{ item.name }} is empty or unavailable.
+    quiet: true
+  loop: "{{ hashicorp_vault_certificates }}"
+  loop_control:
+    label: "{{ item.name }}"
+  no_log: "{{ hashicorp_vault_no_log }}"

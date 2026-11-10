@@ -1,0 +1,1247 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "vault_configuration_token": {
+      "type": "string"
+    },
+    "vault_configuration_passwords": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "vault_configuration_execution_host": {
+      "type": "string",
+      "minLength": 1
+    },
+    "vault_configuration_export": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "destination": {
+          "type": "string",
+          "minLength": 1
+        },
+        "audit_destination": {
+          "type": "string",
+          "minLength": 1
+        },
+        "scope": {
+          "enum": [
+            "managed",
+            "scoped"
+          ]
+        },
+        "allow_partial": {
+          "type": "boolean"
+        },
+        "mounts": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true,
+          "minItems": 0
+        },
+        "auth_mounts": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true,
+          "minItems": 0
+        },
+        "entities": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true,
+          "minItems": 0
+        },
+        "groups": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true,
+          "minItems": 0
+        },
+        "policies": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true,
+          "minItems": 0
+        },
+        "auth_roles": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true,
+          "minItems": 0
+        },
+        "users": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true,
+          "minItems": 0
+        },
+        "ldap": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        }
+      },
+      "required": []
+    },
+    "vault_configuration_users": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-][A-Za-z0-9_.-]*$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-][A-Za-z0-9_.-]*$"
+          },
+          "source": {
+            "enum": [
+              "userpass",
+              "external"
+            ]
+          },
+          "disabled": {
+            "type": "boolean"
+          },
+          "aliases": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "auth_mount": {
+                  "type": "string",
+                  "pattern": "^(?:[A-Za-z0-9_-][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_-][A-Za-z0-9_.-]*)*)?$"
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "auth_mount",
+                "name"
+              ]
+            },
+            "uniqueItems": true,
+            "minItems": 0
+          },
+          "auth_mount": {
+            "type": "string",
+            "pattern": "^(?:[A-Za-z0-9_-][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_-][A-Za-z0-9_.-]*)*)?$"
+          },
+          "login": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-][A-Za-z0-9_.-]*$"
+          },
+          "password": {
+            "type": "string"
+          },
+          "password_revision": {
+            "type": "string",
+            "minLength": 1
+          },
+          "password_policy": {
+            "enum": [
+              "on_create",
+              "on_revision"
+            ]
+          },
+          "token_parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "token_ttl": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "token_max_ttl": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "token_explicit_max_ttl": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "token_period": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "token_num_uses": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "token_no_default_policy": {
+                "type": "boolean"
+              },
+              "token_type": {
+                "type": "string"
+              },
+              "token_bound_cidrs": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "required": []
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "source"
+        ],
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "source": {
+                  "const": "userpass"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "auth_mount",
+                "login",
+                "password_revision"
+              ]
+            },
+            "else": {
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "auth_mount"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "login"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "password"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "password_revision"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "password_policy"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "token_parameters"
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "uniqueItems": true,
+      "minItems": 0
+    },
+    "vault_configuration_groups": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-][A-Za-z0-9_.-]*$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-][A-Za-z0-9_.-]*$"
+          },
+          "type": {
+            "enum": [
+              "internal",
+              "external"
+            ]
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9_-][A-Za-z0-9_.-]*$"
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "uuid": {
+                      "type": "string",
+                      "minLength": 1,
+                      "format": "uuid"
+                    }
+                  },
+                  "required": [
+                    "uuid"
+                  ]
+                }
+              ]
+            },
+            "uniqueItems": true,
+            "minItems": 0
+          },
+          "member_groups": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9_-][A-Za-z0-9_.-]*$"
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "uuid": {
+                      "type": "string",
+                      "minLength": 1,
+                      "format": "uuid"
+                    }
+                  },
+                  "required": [
+                    "uuid"
+                  ]
+                }
+              ]
+            },
+            "uniqueItems": true,
+            "minItems": 0
+          },
+          "alias": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "auth_mount": {
+                "type": "string",
+                "pattern": "^(?:[A-Za-z0-9_-][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_-][A-Za-z0-9_.-]*)*)?$"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "auth_mount",
+              "name"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "type"
+        ],
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "type": {
+                  "const": "external"
+                }
+              }
+            },
+            "then": {
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "members"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "member_groups"
+                    ]
+                  }
+                ]
+              }
+            },
+            "else": {
+              "not": {
+                "required": [
+                  "alias"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "uniqueItems": true,
+      "minItems": 0
+    },
+    "vault_configuration_grants": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-][A-Za-z0-9_.-]*$"
+          },
+          "subjects": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "enum": [
+                    "user",
+                    "group",
+                    "auth_role"
+                  ]
+                },
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9_-][A-Za-z0-9_.-]*$"
+                },
+                "uuid": {
+                  "type": "string",
+                  "minLength": 1,
+                  "format": "uuid"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "oneOf": [
+                {
+                  "required": [
+                    "id"
+                  ],
+                  "not": {
+                    "required": [
+                      "uuid"
+                    ]
+                  }
+                },
+                {
+                  "required": [
+                    "uuid"
+                  ],
+                  "not": {
+                    "required": [
+                      "id"
+                    ]
+                  }
+                }
+              ]
+            },
+            "uniqueItems": true,
+            "minItems": 1
+          },
+          "paths": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "mount": {
+                  "type": "string",
+                  "pattern": "^(?:[A-Za-z0-9_-][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_-][A-Za-z0-9_.-]*)*)?$"
+                },
+                "path": {
+                  "type": "string",
+                  "pattern": "^(?:[A-Za-z0-9_-][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_-][A-Za-z0-9_.-]*)*)?$"
+                },
+                "scope": {
+                  "enum": [
+                    "exact",
+                    "subtree"
+                  ]
+                },
+                "permissions": {
+                  "type": "array",
+                  "items": {
+                    "enum": [
+                      "read",
+                      "write",
+                      "patch",
+                      "list",
+                      "read_metadata",
+                      "update_metadata",
+                      "delete_latest",
+                      "delete_versions",
+                      "undelete_versions",
+                      "destroy_versions",
+                      "delete_metadata"
+                    ]
+                  },
+                  "uniqueItems": true,
+                  "minItems": 1
+                }
+              },
+              "required": [
+                "mount",
+                "path",
+                "scope",
+                "permissions"
+              ]
+            },
+            "uniqueItems": true,
+            "minItems": 1
+          },
+          "existing_policies": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9_-][A-Za-z0-9_.-]*$"
+            },
+            "uniqueItems": true,
+            "minItems": 1
+          },
+          "discovery_paths": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "mount": {
+                  "type": "string",
+                  "pattern": "^(?:[A-Za-z0-9_-][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_-][A-Za-z0-9_.-]*)*)?$"
+                },
+                "path": {
+                  "type": "string",
+                  "pattern": "^(?:[A-Za-z0-9_-][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_-][A-Za-z0-9_.-]*)*)?$"
+                }
+              },
+              "required": [
+                "mount",
+                "path"
+              ]
+            },
+            "uniqueItems": true,
+            "minItems": 0
+          }
+        },
+        "required": [
+          "id",
+          "subjects"
+        ],
+        "oneOf": [
+          {
+            "required": [
+              "paths"
+            ],
+            "not": {
+              "required": [
+                "existing_policies"
+              ]
+            }
+          },
+          {
+            "required": [
+              "existing_policies"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "paths"
+                  ]
+                },
+                {
+                  "required": [
+                    "discovery_paths"
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "uniqueItems": true,
+      "minItems": 0
+    },
+    "vault_configuration_auth_roles": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-][A-Za-z0-9_.-]*$"
+          },
+          "type": {
+            "enum": [
+              "approle",
+              "kubernetes",
+              "jwt",
+              "oidc"
+            ]
+          },
+          "auth_mount": {
+            "type": "string",
+            "pattern": "^(?:[A-Za-z0-9_-][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_-][A-Za-z0-9_.-]*)*)?$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-][A-Za-z0-9_.-]*$"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "auth_mount",
+          "name"
+        ]
+      },
+      "uniqueItems": true,
+      "minItems": 0
+    },
+    "vault_configuration_personal_access": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "mount": {
+          "type": "string",
+          "pattern": "^(?:[A-Za-z0-9_-][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_-][A-Za-z0-9_.-]*)*)?$"
+        },
+        "subjects": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "enum": [
+                  "user",
+                  "group",
+                  "auth_role"
+                ]
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_-][A-Za-z0-9_.-]*$"
+              },
+              "uuid": {
+                "type": "string",
+                "minLength": 1,
+                "format": "uuid"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "oneOf": [
+              {
+                "required": [
+                  "id"
+                ],
+                "not": {
+                  "required": [
+                    "uuid"
+                  ]
+                }
+              },
+              {
+                "required": [
+                  "uuid"
+                ],
+                "not": {
+                  "required": [
+                    "id"
+                  ]
+                }
+              }
+            ]
+          },
+          "uniqueItems": true,
+          "minItems": 1
+        },
+        "permissions": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "read",
+              "write",
+              "patch",
+              "list",
+              "read_metadata",
+              "update_metadata",
+              "delete_latest",
+              "delete_versions",
+              "undelete_versions",
+              "destroy_versions",
+              "delete_metadata"
+            ]
+          },
+          "uniqueItems": true,
+          "minItems": 1
+        },
+        "identity_source": {
+          "type": "string",
+          "enum": [
+            "entity_id",
+            "ldap_login"
+          ],
+          "default": "entity_id"
+        },
+        "auth_mount": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_-][A-Za-z0-9_.-]*)*$"
+        },
+        "path_prefix": {
+          "type": "string",
+          "pattern": "^(?:[A-Za-z0-9_-][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_-][A-Za-z0-9_.-]*)*)?$",
+          "default": ""
+        }
+      },
+      "required": [
+        "enabled"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "enabled": {
+                "const": true
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "mount",
+              "subjects",
+              "permissions"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "enabled": {
+                "const": true
+              }
+            }
+          },
+          "then": {
+            "if": {
+              "properties": {
+                "identity_source": {
+                  "const": "ldap_login"
+                }
+              },
+              "required": [
+                "identity_source"
+              ]
+            },
+            "then": {
+              "required": [
+                "auth_mount"
+              ],
+              "properties": {
+                "subjects": {
+                  "items": {
+                    "properties": {
+                      "kind": {
+                        "enum": [
+                          "user",
+                          "group"
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "else": {
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "auth_mount"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "path_prefix"
+                    ]
+                  }
+                ]
+              },
+              "properties": {
+                "subjects": {
+                  "items": {
+                    "properties": {
+                      "kind": {
+                        "const": "user"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "vault_configuration_config_schema_version": {
+      "const": 1
+    },
+    "vault_configuration_config_mode": {
+      "enum": [
+        "apply",
+        "dry",
+        "export"
+      ]
+    },
+    "vault_configuration_config_compatibility_profile": {
+      "enum": [
+        "community-validated",
+        "community-candidate"
+      ]
+    },
+    "vault_configuration_config_connection_address": {
+      "type": "string",
+      "minLength": 1,
+      "format": "uri"
+    },
+    "vault_configuration_config_connection_validate_tls": {
+      "type": "boolean"
+    },
+    "vault_configuration_config_connection_ca_file": {
+      "type": "string",
+      "minLength": 1
+    },
+    "vault_configuration_config_connection_client_cert": {
+      "type": "string",
+      "minLength": 1
+    },
+    "vault_configuration_config_connection_client_key": {
+      "type": "string",
+      "minLength": 1
+    },
+    "vault_configuration_config_connection_timeout_seconds": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 600
+    },
+    "vault_configuration_config_connection_allow_insecure_http": {
+      "type": "boolean"
+    },
+    "vault_configuration_config_management_owner": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9_-][A-Za-z0-9_.-]*$"
+    },
+    "vault_configuration_config_management_policy_prefix": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9_-][A-Za-z0-9_.-]*$"
+    },
+    "vault_configuration_config_management_state_file": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^/.*\\.json$"
+    },
+    "vault_configuration_config_management_prune": {
+      "type": "boolean"
+    },
+    "vault_configuration_config_management_prune_identities": {
+      "type": "boolean"
+    },
+    "vault_configuration_config_management_adoption": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "entity",
+              "group",
+              "policy",
+              "userpass",
+              "auth_role",
+              "entity_alias",
+              "group_alias",
+              "ldap_config"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uuid": {
+            "type": "string",
+            "minLength": 1
+          },
+          "hash": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        },
+        "required": [
+          "kind",
+          "id"
+        ],
+        "oneOf": [
+          {
+            "required": [
+              "uuid"
+            ],
+            "not": {
+              "required": [
+                "hash"
+              ]
+            }
+          },
+          {
+            "required": [
+              "hash"
+            ],
+            "not": {
+              "required": [
+                "uuid"
+              ]
+            }
+          }
+        ]
+      },
+      "uniqueItems": true,
+      "minItems": 0
+    },
+    "vault_configuration_config_management_deletion_approvals": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "entity",
+              "group",
+              "policy",
+              "userpass",
+              "auth_role",
+              "entity_alias",
+              "group_alias",
+              "ldap_config"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "hash": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "dependencies_cleared": {
+            "const": true
+          }
+        },
+        "required": [
+          "kind",
+          "id",
+          "hash",
+          "dependencies_cleared"
+        ]
+      },
+      "uniqueItems": true,
+      "minItems": 0
+    },
+    "vault_configuration_config_management_recovery_digest": {
+      "type": "string",
+      "minLength": 1
+    },
+    "vault_configuration_config_management_recovery_outcome": {
+      "enum": [
+        "applied",
+        "not_applied"
+      ]
+    },
+    "vault_configuration_config_safety_max_deletions": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "vault_configuration_config_safety_allow_empty_desired": {
+      "type": "boolean"
+    },
+    "vault_configuration_config_safety_allow_mount_root": {
+      "type": "boolean"
+    },
+    "vault_configuration_config_safety_allow_destructive_grants": {
+      "type": "boolean"
+    },
+    "vault_configuration_config_safety_protected_policies": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true,
+      "minItems": 0
+    },
+    "vault_configuration_config_safety_protected_entities": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true,
+      "minItems": 0
+    },
+    "vault_configuration_config_safety_protected_groups": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true,
+      "minItems": 0
+    },
+    "vault_configuration_config_mounts": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^(?:[A-Za-z0-9_-][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_-][A-Za-z0-9_.-]*)*)?$"
+      },
+      "uniqueItems": true,
+      "minItems": 0
+    },
+    "vault_configuration_config_report_destination": {
+      "type": "string",
+      "description": "Full execution-host report path. Dry writes YAML; its role default is vault-configuration-<inventory_hostname>-dry.yml in playbook_dir.",
+      "minLength": 1
+    },
+    "vault_configuration_config_expected_plan_digest": {
+      "type": "string",
+      "minLength": 1
+    },
+    "vault_configuration_ldap": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "auth_mount": {
+            "type": "string",
+            "minLength": 1
+          },
+          "config": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "url": {
+                "type": "string"
+              },
+              "binddn": {
+                "type": "string"
+              },
+              "userdn": {
+                "type": "string"
+              },
+              "userattr": {
+                "type": "string"
+              },
+              "userfilter": {
+                "type": "string"
+              },
+              "groupdn": {
+                "type": "string"
+              },
+              "groupattr": {
+                "type": "string"
+              },
+              "groupfilter": {
+                "type": "string"
+              },
+              "upndomain": {
+                "type": "string"
+              },
+              "certificate": {
+                "type": "string"
+              },
+              "starttls": {
+                "type": "boolean"
+              },
+              "insecure_tls": {
+                "type": "boolean"
+              },
+              "tls_min_version": {
+                "type": "string"
+              },
+              "tls_max_version": {
+                "type": "string"
+              },
+              "discoverdn": {
+                "type": "boolean"
+              },
+              "deny_null_bind": {
+                "type": "boolean"
+              },
+              "anonymous_group_search": {
+                "type": "boolean"
+              },
+              "case_sensitive_names": {
+                "type": "boolean"
+              },
+              "username_as_alias": {
+                "type": "boolean"
+              },
+              "use_token_groups": {
+                "type": "boolean"
+              },
+              "enable_samaccountname_login": {
+                "type": "boolean"
+              },
+              "dereference_aliases": {
+                "type": "string"
+              },
+              "max_page_size": {
+                "type": "integer"
+              },
+              "connection_timeout": {
+                "type": "integer"
+              },
+              "request_timeout": {
+                "type": "integer"
+              },
+              "token_ttl": {
+                "type": "integer"
+              },
+              "token_max_ttl": {
+                "type": "integer"
+              },
+              "token_explicit_max_ttl": {
+                "type": "integer"
+              },
+              "token_period": {
+                "type": "integer"
+              },
+              "token_num_uses": {
+                "type": "integer"
+              },
+              "token_no_default_policy": {
+                "type": "boolean"
+              },
+              "token_type": {
+                "type": "string"
+              },
+              "token_bound_cidrs": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "url",
+              "userdn",
+              "groupdn"
+            ]
+          },
+          "bind_password_revision": {
+            "type": "string",
+            "minLength": 1
+          },
+          "allow_insecure_ldap": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "auth_mount",
+          "config"
+        ]
+      }
+    },
+    "vault_configuration_ldap_passwords": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [],
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "vault-configuration inventory v1",
+  "description": "Shape schema; runtime also checks paths, references, cycles, ownership and safety switches.",
+  "dependentRequired": {
+    "vault_configuration_config_connection_client_cert": [
+      "vault_configuration_config_connection_client_key"
+    ],
+    "vault_configuration_config_connection_client_key": [
+      "vault_configuration_config_connection_client_cert"
+    ],
+    "vault_configuration_config_management_recovery_digest": [
+      "vault_configuration_config_management_recovery_outcome"
+    ],
+    "vault_configuration_config_management_recovery_outcome": [
+      "vault_configuration_config_management_recovery_digest"
+    ]
+  }
+}

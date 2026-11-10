@@ -1,0 +1,45 @@
+---
+- name: Verify operation after losing the active Raft node
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files: [vars.yml]
+  tasks:
+    - name: Stop the first node and wait for election
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ molecule_scenario_directory }}/fixture.py"
+          - failover
+          - "{{ lookup('env', 'MOLECULE_EPHEMERAL_DIRECTORY') }}"
+      changed_when: true
+    - name: Read the selected active API origin
+      ansible.builtin.set_fact:
+        vault_configuration_test_address: "{{ (lookup('file', lookup('env', 'MOLECULE_EPHEMERAL_DIRECTORY') + '/active.json') | from_json).address }}"
+    - name: Reapply the role to the same cluster on its new active node
+      ansible.builtin.include_role:
+        name: vault-configuration
+    - name: Confirm the reapply preserved UUIDs and made no changes
+      ansible.builtin.assert:
+        that: not vault_configuration_result.report.changed
+    - name: Login to the surviving API
+      ansible.builtin.uri:
+        url: "{{ vault_configuration_test_address }}/v1/auth/userpass/login/alice"
+        method: POST
+        body_format: json
+        body: {password: molecule-ha-test-password}
+      register: vault_configuration_test_login
+      no_log: true
+    - name: Write through the new active node
+      ansible.builtin.uri:
+        url: "{{ vault_configuration_test_address }}/v1/apps/data/payments/prod/backend"
+        method: POST
+        headers: {X-Vault-Token: '{{ vault_configuration_test_login.json.auth.client_token }}'}
+        body_format: json
+        body: {data: {value: failover-fixture}}
+      no_log: true
+    - name: Read through the new active node
+      ansible.builtin.uri:
+        url: "{{ vault_configuration_test_address }}/v1/apps/data/payments/prod/backend"
+        headers: {X-Vault-Token: '{{ vault_configuration_test_login.json.auth.client_token }}'}
+      no_log: true

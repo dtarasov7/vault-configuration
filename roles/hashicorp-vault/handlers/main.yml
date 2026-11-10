@@ -1,0 +1,7 @@
+---
+- name: handlers.yml - Restart vault
+  ansible.builtin.systemd:
+    name: "{{ hashicorp_vault_service_name }}"
+    state: restarted
+    daemon_reload: true
+  listen: hashicorp_vault_restart

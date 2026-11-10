@@ -1,0 +1,9 @@
+---
+- name: export.yml - Export supported configuration without evaluating credentials or desired sections
+  vault_configuration:
+    export: '{{ vault_configuration_export }}'
+  delegate_to: '{{ vault_configuration_execution_host }}'
+  register: vault_configuration_result
+  no_log: true
+  ignore_errors: true
+  changed_when: false

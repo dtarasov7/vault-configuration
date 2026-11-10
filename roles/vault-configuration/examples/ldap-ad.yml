@@ -1,0 +1,38 @@
+---
+# Include alongside your flat connection/owner settings. Directory entries already exist in AD.
+vault_configuration_ldap_passwords:
+  corporate-ad: "{{ vault_ad_bind_password }}"
+vault_configuration_ldap:
+  - id: corporate-ad
+    auth_mount: ad
+    bind_password_revision: initial-1
+    config:
+      url: ldaps://dc1.example.org:636,ldaps://dc2.example.org:636
+      certificate: "{{ lookup('file', 'certs/ad-ca.pem') }}"
+      insecure_tls: false
+      tls_min_version: tls12
+      tls_max_version: tls13
+      binddn: CN=svc-vault,OU=Service Accounts,DC=example,DC=org
+      userdn: OU=Users,DC=example,DC=org
+      userattr: samaccountname
+      groupdn: OU=Groups,DC=example,DC=org
+      groupattr: cn
+      # The outer expression preserves the Vault Go template through Ansible.
+      groupfilter: "{{ '(&(objectClass=group)(member:1.2.840.113556.1.4.1941:={{.UserDN}}))' }}"
+      use_token_groups: false
+      username_as_alias: true
+      case_sensitive_names: false
+      connection_timeout: 30
+      request_timeout: 90
+vault_configuration_groups:
+  - id: payments-prod-ad
+    name: payments-prod-ad
+    type: external
+    alias:
+      auth_mount: ad
+      name: payments-prod
+vault_configuration_grants:
+  - id: payments-prod-ad-read
+    subjects: [{kind: group, id: payments-prod-ad}]
+    paths:
+      - {mount: apps, path: payments/prod, scope: subtree, permissions: [read, list]}

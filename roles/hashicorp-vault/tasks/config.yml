@@ -1,0 +1,55 @@
+---
+- name: config.yml - Deploy Vault configuration
+  ansible.builtin.template:
+    src: vault.hcl.j2
+    dest: "{{ hashicorp_vault_config_dir }}/vault.hcl"
+    owner: root
+    group: "{{ hashicorp_vault_group }}"
+    mode: "0640"
+  notify: hashicorp_vault_restart
+
+- name: config.yml - Deploy Vault environment file
+  ansible.builtin.template:
+    src: vault.env.j2
+    dest: "{{ hashicorp_vault_environment_file }}"
+    owner: root
+    group: "{{ hashicorp_vault_group }}"
+    mode: "0640"
+  notify: hashicorp_vault_restart
+  no_log: "{{ hashicorp_vault_no_log }}"
+
+- name: config.yml - Deploy Vault systemd unit
+  ansible.builtin.template:
+    src: vault.service.j2
+    dest: "/etc/systemd/system/{{ hashicorp_vault_service_name }}.service"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: hashicorp_vault_restart
+
+- name: config.yml - Flush service restart handlers
+  ansible.builtin.meta: flush_handlers
+
+- name: config.yml - Enable and start Vault
+  ansible.builtin.systemd:
+    name: "{{ hashicorp_vault_service_name }}"
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: config.yml - Wait for Vault API
+  ansible.builtin.uri:
+    url: "{{ 'https' if hashicorp_vault_tls_enabled | bool else 'http' }}://{{ hashicorp_vault_api_address }}:{{ hashicorp_vault_api_port }}/v1/sys/health"
+    method: GET
+    validate_certs: "{{ hashicorp_vault_api_validate_certs }}"
+    status_code:
+      - 200
+      - 429
+      - 472
+      - 473
+      - 501
+      - 503
+  register: hashicorp_vault_health
+  retries: 30
+  delay: 2
+  until: hashicorp_vault_health.status | default(-1) in [200, 429, 472, 473, 501, 503]

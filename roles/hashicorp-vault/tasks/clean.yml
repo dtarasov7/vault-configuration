@@ -1,0 +1,65 @@
+---
+- name: clean.yml - Require explicit cleanup confirmation
+  ansible.builtin.assert:
+    that:
+      - hashicorp_vault_clean_confirm | bool
+    fail_msg: Set hashicorp_vault_clean_confirm=true to remove Vault and all local data.
+
+- name: clean.yml - Stop and disable Vault service
+  ansible.builtin.systemd:
+    name: "{{ hashicorp_vault_service_name }}"
+    state: stopped
+    enabled: false
+  failed_when: false
+
+- name: clean.yml - Remove Vault package version lock
+  ansible.builtin.command:
+    cmd: >-
+      {{ 'dnf' if ansible_pkg_mgr in ['dnf', 'dnf5'] else 'yum' }}
+      versionlock delete {{ hashicorp_vault_package_name }}
+  changed_when: true
+  failed_when: false
+  when:
+    - hashicorp_vault_install_method == 'package'
+    - hashicorp_vault_versionlock | bool
+
+- name: clean.yml - Remove Vault package
+  ansible.builtin.package:
+    name: "{{ hashicorp_vault_package_name }}"
+    state: absent
+  when: hashicorp_vault_install_method == 'package'
+
+- name: clean.yml - Remove Vault managed files and directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "/etc/systemd/system/{{ hashicorp_vault_service_name }}.service"
+    - "{{ hashicorp_vault_environment_file }}"
+    - "{{ hashicorp_vault_config_dir }}"
+    - "{{ hashicorp_vault_data_dir }}"
+    - "{{ hashicorp_vault_log_dir }}"
+
+- name: clean.yml - Remove role-managed Vault executable
+  ansible.builtin.file:
+    path: "{{ hashicorp_vault_binary_path }}"
+    state: absent
+  when: hashicorp_vault_install_method == 'binary'
+
+- name: clean.yml - Reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: clean.yml - Remove Vault system user
+  ansible.builtin.user:
+    name: "{{ hashicorp_vault_user }}"
+    state: absent
+    remove: false
+
+- name: clean.yml - Remove Vault system group
+  ansible.builtin.group:
+    name: "{{ hashicorp_vault_group }}"
+    state: absent
+
+- name: clean.yml - End play after cleanup
+  ansible.builtin.meta: end_play

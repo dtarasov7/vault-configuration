@@ -1,0 +1,48 @@
+---
+- name: pre-req.yml - Require a single execution host
+  ansible.builtin.assert:
+    that:
+      - ansible_play_hosts_all | length == 1
+    fail_msg: Use one play host per Vault/owner and serialize apply jobs in CI.
+    quiet: true
+
+- name: pre-req.yml - Require flat configuration variables
+  ansible.builtin.assert:
+    that:
+      - vault_configuration_config is not defined
+      - query('varnames', '^vault_configuration_config_') | difference(vault_configuration_supported_config_variables) | length == 0
+    fail_msg: >-
+      Use the documented vault_configuration_config_* variables instead of vault_configuration_config.
+      Unknown variables: {{ query('varnames', '^vault_configuration_config_') | difference(vault_configuration_supported_config_variables) }}
+    quiet: true
+  vars:
+    vault_configuration_supported_config_variables:
+    - vault_configuration_config_compatibility_profile
+    - vault_configuration_config_connection_address
+    - vault_configuration_config_connection_allow_insecure_http
+    - vault_configuration_config_connection_ca_file
+    - vault_configuration_config_connection_client_cert
+    - vault_configuration_config_connection_client_key
+    - vault_configuration_config_connection_timeout_seconds
+    - vault_configuration_config_connection_validate_tls
+    - vault_configuration_config_expected_plan_digest
+    - vault_configuration_config_management_adoption
+    - vault_configuration_config_management_deletion_approvals
+    - vault_configuration_config_management_owner
+    - vault_configuration_config_management_policy_prefix
+    - vault_configuration_config_management_prune
+    - vault_configuration_config_management_prune_identities
+    - vault_configuration_config_management_recovery_digest
+    - vault_configuration_config_management_recovery_outcome
+    - vault_configuration_config_management_state_file
+    - vault_configuration_config_mode
+    - vault_configuration_config_mounts
+    - vault_configuration_config_report_destination
+    - vault_configuration_config_safety_allow_destructive_grants
+    - vault_configuration_config_safety_allow_empty_desired
+    - vault_configuration_config_safety_allow_mount_root
+    - vault_configuration_config_safety_max_deletions
+    - vault_configuration_config_safety_protected_entities
+    - vault_configuration_config_safety_protected_groups
+    - vault_configuration_config_safety_protected_policies
+    - vault_configuration_config_schema_version

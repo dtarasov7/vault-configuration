@@ -1,0 +1,11 @@
+---
+# Controller files: init/unseal material and ownership registry.
+vault_lab_state_dir: "{{ inventory_dir }}/.state"
+vault_lab_init_file: "{{ vault_lab_state_dir }}/vault-init.json"
+
+vault_lab_server_address: "{{ hostvars[groups['vault'][0]].ansible_host | default(groups['vault'][0]) }}"
+vault_lab_vault_url: "http://{{ vault_lab_server_address }}:{{ hashicorp_vault_api_port }}"
+vault_lab_ldap_url: "ldap://{{ vault_lab_server_address }}:389"
+
+# Default suffix of scripts/seed-test-ldap-redos8.py; adjust if --domain differed.
+vault_lab_ldap_base_dn: dc=example,dc=org

@@ -1,0 +1,28 @@
+---
+- name: Create isolated API containers without modifying execution-host HOME
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Create the test network
+      community.docker.docker_network:
+        name: vault-configuration-molecule
+        state: present
+    - name: Start prebuilt Vault images
+      community.docker.docker_container:
+        name: "{{ item.name }}"
+        image: "{{ item.image }}"
+        command: "{{ item.command }}"
+        env: "{{ item.env }}"
+        published_ports: "{{ item.published_ports }}"
+        networks: [{name: vault-configuration-molecule}]
+        state: started
+        detach: true
+      loop: "{{ molecule_yml.platforms }}"
+      loop_control:
+        label: "{{ item.name }}"
+    - name: Record local API execution inventory
+      ansible.builtin.copy:
+        content: "[]\n"
+        dest: "{{ molecule_instance_config }}"
+        mode: '0600'

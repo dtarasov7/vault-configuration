@@ -1,0 +1,64 @@
+---
+- name: Verify real client access
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+  - name: Write fixture secrets outside the role
+    ansible.builtin.uri:
+      url: http://127.0.0.1:18210/v1/apps/data/{{ item }}
+      method: POST
+      headers:
+        X-Vault-Token: molecule-test-only-token
+      body_format: json
+      body:
+        data:
+          value: fixture
+    loop:
+    - payments/prod/backend
+    - payments/production/backend
+    - payments/dev/backend
+    no_log: true
+  - name: Login with the managed local account
+    ansible.builtin.uri:
+      url: http://127.0.0.1:18210/v1/auth/userpass/login/alice
+      method: POST
+      body_format: json
+      body:
+        password: molecule-test-only-password
+    register: vault_configuration_login
+    no_log: true
+  - name: Read the permitted secret
+    ansible.builtin.uri:
+      url: http://127.0.0.1:18210/v1/apps/data/payments/prod/backend
+      headers:
+        X-Vault-Token: '{{ vault_configuration_login.json.auth.client_token }}'
+    no_log: true
+  - name: Deny sibling prefixes and writes
+    ansible.builtin.uri:
+      url: http://127.0.0.1:18210/v1/apps/data/{{ item }}
+      headers:
+        X-Vault-Token: '{{ vault_configuration_login.json.auth.client_token }}'
+      status_code: 403
+    loop:
+    - payments/production/backend
+    - payments/dev/backend
+    - other/prod/backend
+    no_log: true
+  - name: Write a personal fixture
+    ansible.builtin.uri:
+      url: http://127.0.0.1:18210/v1/users/data/{{ vault_configuration_login.json.auth.entity_id }}/personal/service
+      method: POST
+      headers:
+        X-Vault-Token: '{{ vault_configuration_login.json.auth.client_token }}'
+      body_format: json
+      body:
+        data:
+          value: private-fixture
+    no_log: true
+  - name: Read back the personal fixture
+    ansible.builtin.uri:
+      url: http://127.0.0.1:18210/v1/users/data/{{ vault_configuration_login.json.auth.entity_id }}/personal/service
+      headers:
+        X-Vault-Token: '{{ vault_configuration_login.json.auth.client_token }}'
+    no_log: true

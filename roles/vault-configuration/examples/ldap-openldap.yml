@@ -1,0 +1,29 @@
+---
+vault_configuration_ldap_passwords:
+  corporate-ldap: "{{ vault_ldap_bind_password }}"
+vault_configuration_ldap:
+  - id: corporate-ldap
+    auth_mount: ldap
+    bind_password_revision: initial-1
+    config:
+      url: ldaps://ldap.example.org:636
+      certificate: "{{ lookup('file', 'certs/ldap-ca.pem') }}"
+      insecure_tls: false
+      binddn: cn=vault,ou=service,dc=example,dc=org
+      userdn: ou=people,dc=example,dc=org
+      userattr: uid
+      groupdn: ou=groups,dc=example,dc=org
+      groupattr: cn
+      groupfilter: "{{ '(&(objectClass=groupOfNames)(member={{.UserDN}}))' }}"
+      username_as_alias: true
+      case_sensitive_names: false
+vault_configuration_groups:
+  - id: developers-ldap
+    name: developers-ldap
+    type: external
+    alias: {auth_mount: ldap, name: developers}
+vault_configuration_grants:
+  - id: developers-apps
+    subjects: [{kind: group, id: developers-ldap}]
+    paths:
+      - {mount: apps, path: payments/dev, scope: subtree, permissions: [read, write, list]}

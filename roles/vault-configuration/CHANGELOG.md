@@ -1,0 +1,29 @@
+# История изменений
+
+## Изменения — 2026-10-26
+
+- Добавлен personal_access с identity_source=ldap_login, auth_mount и path_prefix: политика по LDAP-логину, назначаемая пользователям и группам без перечисления участников LDAP.
+- Accessor определяется автоматически, включая создание LDAP mount в том же apply; смена сохранённого accessor требует миграции. Поддержаны переносимый YAML-export/import и прежний entity_id-режим.
+
+## Документация — 2026-10-26
+
+- Добавлены примеры личных путей LDAP-пользователей, назначения существующим entities и общей шаблонной политики для LDAP-группы с явным указанием текущих ограничений роли.
+
+## 1.0.0 — 2026-10-24
+
+- Уточнены назначение groupdn/groupattr/alias.name, ограничения DN и wildcard aliases и пример поиска LDAP-групп по части CN с проверкой членства.
+- В README описаны два механизма LDAP-прав, расположение Identity Groups в GUI и пример общей внутренней группы для локальных и LDAP-пользователей.
+- Из YAML и консольного отчёта dry исключены noop; отображаются только изменения, полный внутренний план и digest сохраняются.
+- Основной export записывается в обычном YAML; отдельный audit остаётся JSON. В inventory redos8 восстановлены все пять KV v2 mounts: certs, infra, apps, cicd, users.
+- Безопасный отчёт применения теперь виден при обычном запуске Ansible без `-v`.
+- Обычный dry автоматически сохраняет YAML-отчёт 0600; имя/путь задаются через `vault_configuration_config_report_destination` в inventory. Добавлена runtime-зависимость PyYAML для отчёта.
+- Пример `examples/redos8-lab` использует только `hashicorp-vault` и `vault-configuration`; bind credentials и локальные пароли задаются в inventory. Отсутствующие userpass auth mounts создаёт API-роль в общем плане.
+- Административная политика для единственного токена роли больше не зависит от mounts и policy prefix; добавлены команды выдачи токена через root в README.
+- Добавлены создание отсутствующих KV v2 mounts без удаления, LDAP/AD auth и внешний словарь bind-паролей; локальная очистка удалена.
+- Добавлен отдельный RPM/TLS installer тестового Vault 2.0.4 на РЕД ОС 7.3; export/reconcile разделены.
+- Словарь `vault_configuration_config` заменён независимыми переменными `vault_configuration_config_*`, включая вложенные connection/management/safety настройки.
+- Создана API-роль управления Vault Identity, userpass, KV v2 ACL и назначениями существующим auth roles.
+- Добавлены самостоятельный dry, apply/check/diff, реестр владения, adoption, безопасный prune и журнал частичного применения.
+- Добавлены обратный экспорт фактических ACL, внешняя передача паролей, TLS и защита credentials от redirects.
+- Поставлены схемы inventory/реестра, bootstrap policy, примеры, unit/integration и Docker Molecule default/HA.
+- Точные проверенные версии и результаты перечислены в TEST-REPORT.md; другие профили не объявлены поддержанными.

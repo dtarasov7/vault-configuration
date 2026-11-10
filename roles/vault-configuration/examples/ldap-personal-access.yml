@@ -1,0 +1,13 @@
+---
+# Merge with ldap-openldap.yml: it declares LDAP auth mount "ldap" and
+# the external group with inventory ID "developers-ldap".
+# LDAP users need not be declared in vault_configuration_users.
+vault_configuration_personal_access:
+  enabled: true
+  identity_source: ldap_login
+  auth_mount: ldap
+  mount: users
+  path_prefix: dep1
+  subjects:
+    - {kind: group, id: developers-ldap}
+  permissions: [read, write, list]

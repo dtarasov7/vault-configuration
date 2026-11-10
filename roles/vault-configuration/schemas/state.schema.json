@@ -1,0 +1,316 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "cluster_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "owner": {
+      "type": "string",
+      "minLength": 1
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "entity",
+              "group",
+              "policy",
+              "userpass",
+              "auth_role",
+              "entity_alias",
+              "group_alias",
+              "mount",
+              "auth_mount",
+              "ldap_config"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uuid": {
+            "type": "string"
+          },
+          "hash": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "links": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "uniqueItems": true,
+              "minItems": 0
+            }
+          },
+          "section": {
+            "enum": [
+              "users",
+              "groups",
+              "grants",
+              "auth_roles",
+              "personal_access",
+              "mounts",
+              "ldap"
+            ]
+          },
+          "shared": {
+            "type": "boolean"
+          },
+          "policy_links": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "uniqueItems": true,
+              "minItems": 0
+            }
+          },
+          "accessor": {
+            "type": "string"
+          },
+          "auth_mount": {
+            "type": "string"
+          },
+          "role_type": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "login": {
+            "type": "string"
+          },
+          "password_policy": {
+            "type": "string"
+          },
+          "password_revision": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "id",
+          "path",
+          "uuid",
+          "hash",
+          "links",
+          "section"
+        ]
+      }
+    },
+    "journal": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1
+          },
+          "action": {
+            "type": "string",
+            "minLength": 1
+          },
+          "hash": {
+            "type": "string",
+            "minLength": 1
+          },
+          "digest": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "key",
+          "action"
+        ]
+      },
+      "minItems": 0
+    },
+    "pending": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "key": {
+              "type": "string",
+              "minLength": 1
+            },
+            "action": {
+              "type": "string",
+              "minLength": 1
+            },
+            "before": {
+              "type": [
+                "object",
+                "null"
+              ]
+            },
+            "desired": {
+              "type": "object"
+            },
+            "record": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "enum": [
+                    "entity",
+                    "group",
+                    "policy",
+                    "userpass",
+                    "auth_role",
+                    "entity_alias",
+                    "group_alias",
+                    "mount",
+                    "auth_mount",
+                    "ldap_config"
+                  ]
+                },
+                "id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "path": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "uuid": {
+                  "type": "string"
+                },
+                "hash": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "links": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "uniqueItems": true,
+                    "minItems": 0
+                  }
+                },
+                "section": {
+                  "enum": [
+                    "users",
+                    "groups",
+                    "grants",
+                    "auth_roles",
+                    "personal_access",
+                    "mounts",
+                    "ldap"
+                  ]
+                },
+                "shared": {
+                  "type": "boolean"
+                },
+                "policy_links": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "uniqueItems": true,
+                    "minItems": 0
+                  }
+                },
+                "accessor": {
+                  "type": "string"
+                },
+                "auth_mount": {
+                  "type": "string"
+                },
+                "role_type": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "login": {
+                  "type": "string"
+                },
+                "password_policy": {
+                  "type": "string"
+                },
+                "password_revision": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "id",
+                "path",
+                "uuid",
+                "hash",
+                "links",
+                "section"
+              ]
+            },
+            "password_write": {
+              "type": "boolean"
+            },
+            "digest": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          },
+          "required": [
+            "key",
+            "action",
+            "before",
+            "desired",
+            "record",
+            "password_write",
+            "digest"
+          ]
+        }
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "cluster_id",
+    "owner",
+    "resources",
+    "journal",
+    "pending"
+  ],
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "vault-configuration registry v1",
+  "description": "Contains no passwords, token values or their hashes. Restore verified backups explicitly."
+}

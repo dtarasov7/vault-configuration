@@ -1,0 +1,89 @@
+---
+- name: Verify single-node Vault
+  hosts: vault
+  gather_facts: true
+  vars:
+    vault_url: "http://{{ inventory_hostname }}:8200"
+    vault_init_file: /tmp/molecule-vault-single-init.json
+  tasks:
+    - name: verify.yml - Check Vault service state
+      ansible.builtin.systemd:
+        name: vault
+      register: vault_service
+      failed_when: vault_service.status.ActiveState != 'active'
+
+    - name: verify.yml - Check Vault is initialized and unsealed
+      ansible.builtin.uri:
+        url: "{{ vault_url }}/v1/sys/seal-status"
+        method: GET
+        status_code: 200
+        return_content: true
+      register: vault_seal_status
+      failed_when: >-
+        not vault_seal_status.json.initialized | bool or
+        vault_seal_status.json.sealed | bool
+
+    - name: verify.yml - Check Prometheus metrics endpoint
+      ansible.builtin.uri:
+        url: "{{ vault_url }}/v1/sys/metrics?format=prometheus"
+        method: GET
+        status_code: 200
+        return_content: true
+      register: vault_prometheus_metrics
+      failed_when:
+        - "'vault_core_unsealed' not in vault_prometheus_metrics.content"
+        - "'vault_runtime_' not in vault_prometheus_metrics.content"
+
+    - name: verify.yml - Read protected initialization material
+      ansible.builtin.slurp:
+        src: "{{ vault_init_file }}"
+      delegate_to: localhost
+      run_once: true
+      register: vault_init_raw
+      no_log: true
+
+    - name: verify.yml - Decode root token
+      ansible.builtin.set_fact:
+        vault_test_token: "{{ (vault_init_raw.content | b64decode | from_json).root_token }}"
+      no_log: true
+
+    - name: verify.yml - Enable test KV secrets engine
+      ansible.builtin.uri:
+        url: "{{ vault_url }}/v1/sys/mounts/molecule"
+        method: POST
+        headers:
+          X-Vault-Token: "{{ vault_test_token }}"
+        body_format: json
+        body:
+          type: kv
+          options:
+            version: "2"
+        status_code:
+          - 204
+          - 400
+      no_log: true
+
+    - name: verify.yml - Write test data
+      ansible.builtin.uri:
+        url: "{{ vault_url }}/v1/molecule/data/health"
+        method: POST
+        headers:
+          X-Vault-Token: "{{ vault_test_token }}"
+        body_format: json
+        body:
+          data:
+            value: molecule
+        status_code: 200
+      no_log: true
+
+    - name: verify.yml - Read test data
+      ansible.builtin.uri:
+        url: "{{ vault_url }}/v1/molecule/data/health"
+        method: GET
+        headers:
+          X-Vault-Token: "{{ vault_test_token }}"
+        status_code: 200
+        return_content: true
+      register: vault_test_read
+      failed_when: vault_test_read.json.data.data.value != 'molecule'
+      no_log: true

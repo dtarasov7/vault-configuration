@@ -1,0 +1,85 @@
+---
+hashicorp_vault_install_method: package
+hashicorp_vault_package_name: vault
+hashicorp_vault_package_version: 2.0.4
+hashicorp_vault_binary_file: vault
+hashicorp_vault_binary_remote_src: false
+hashicorp_vault_binary_path: /usr/local/bin/vault
+hashicorp_vault_versionlock: true
+
+hashicorp_vault_user: vault
+hashicorp_vault_group: vault
+hashicorp_vault_config_dir: /etc/vault.d
+hashicorp_vault_data_dir: /var/lib/vault
+hashicorp_vault_log_dir: /var/log/vault
+hashicorp_vault_log_archive_dir: /var/log/vault/archive
+hashicorp_vault_tls_dir: /etc/vault.d/tls
+hashicorp_vault_service_name: vault
+hashicorp_vault_environment_file: /etc/sysconfig/vault
+hashicorp_vault_service_environment: {}
+
+hashicorp_vault_cluster_group: vault
+hashicorp_vault_cluster_name: vault
+hashicorp_vault_api_port: 8200
+hashicorp_vault_cluster_port: 8201
+hashicorp_vault_bind_address: 0.0.0.0
+hashicorp_vault_api_address: "{{ inventory_hostname }}"
+hashicorp_vault_disable_mlock: true
+hashicorp_vault_ui: true
+hashicorp_vault_log_level: info
+
+hashicorp_vault_telemetry_enabled: true
+hashicorp_vault_prometheus_retention_time: 30s
+hashicorp_vault_telemetry_disable_hostname: true
+hashicorp_vault_unauthenticated_metrics_access: true
+
+hashicorp_vault_tls_enabled: false
+hashicorp_vault_api_validate_certs: true
+hashicorp_vault_hashi_vault_path: ""
+# hashicorp_vault_hashi_vault_path: "secret=opensource-{{ project_name }}/data/cert/{{ inventory_hostname_short | lower }}:"
+# hashicorp_vault_hashi_vault_path_root: "secret=opensource-{{ project_name }}/data/cert/root:"
+hashicorp_vault_hashi_vault_path_root: ""
+hashicorp_vault_hashi_vault_path_certificates: "{{ hashicorp_vault_hashi_vault_path }}"
+hashicorp_vault_certfile: "{{ inventory_hostname_short | lower }}.cer"
+hashicorp_vault_cerkeyfile: "{{ inventory_hostname_short | lower }}.key"
+hashicorp_vault_cacertfile: root.cer
+hashicorp_vault_local_certs_path: ./certs/
+hashicorp_vault_certificates:
+  - name: "{{ hashicorp_vault_cacertfile | basename }}"
+    content: >-
+      {% if hashicorp_vault_hashi_vault_path_certificates | length > 0 %}
+      {{ lookup('hashi_vault', hashicorp_vault_hashi_vault_path_root + (hashicorp_vault_cacertfile | basename)) }}
+      {% else %}
+      {{ lookup('file', hashicorp_vault_local_certs_path + hashicorp_vault_cacertfile) }}
+      {% endif %}
+    mode: "0644"
+  - name: "{{ hashicorp_vault_certfile | basename }}"
+    content: >-
+      {% if hashicorp_vault_hashi_vault_path_certificates | length > 0 %}
+      {{ lookup('hashi_vault', hashicorp_vault_hashi_vault_path_certificates + (hashicorp_vault_certfile | basename)) }}
+      {% else %}
+      {{ lookup('file', hashicorp_vault_local_certs_path + hashicorp_vault_certfile) }}
+      {% endif %}
+    mode: "0644"
+  - name: "{{ hashicorp_vault_cerkeyfile | basename }}"
+    content: >-
+      {% if hashicorp_vault_hashi_vault_path_certificates | length > 0 %}
+      {{ lookup('hashi_vault', hashicorp_vault_hashi_vault_path_certificates + (hashicorp_vault_cerkeyfile | basename)) }}
+      {% else %}
+      {{ lookup('file', hashicorp_vault_local_certs_path + hashicorp_vault_cerkeyfile) }}
+      {% endif %}
+    mode: "0600"
+hashicorp_vault_no_log: true
+
+hashicorp_vault_initialize: true
+hashicorp_vault_key_shares: 5
+hashicorp_vault_key_threshold: 2
+hashicorp_vault_auto_unseal_after_init: true
+hashicorp_vault_init_output_path: "{{ playbook_dir }}/vault-init-keys.json"
+hashicorp_vault_init_output_owner: "{{ lookup('env', 'USER') | default('root', true) }}"
+hashicorp_vault_init_output_group: "{{ omit }}"
+
+hashicorp_vault_minimum_os_major_version: 7
+hashicorp_vault_required_packages:
+  - ca-certificates
+hashicorp_vault_clean_confirm: false

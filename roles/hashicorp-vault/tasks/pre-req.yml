@@ -1,0 +1,62 @@
+---
+- name: pre-req.yml - Validate supported operating system
+  ansible.builtin.assert:
+    that:
+      - >-
+        ansible_os_family == 'RedHat' or
+        ansible_distribution | lower in ['red', 'redos', 'red os', 'rocky', 'almalinux', 'centos', 'redhat', 'oraclelinux']
+      - ansible_distribution_major_version | int >= hashicorp_vault_minimum_os_major_version | int
+    fail_msg: >-
+      This role supports RedOS and EL-compatible systems version
+      {{ hashicorp_vault_minimum_os_major_version }} or newer.
+
+- name: pre-req.yml - Validate installation method
+  ansible.builtin.assert:
+    that:
+      - hashicorp_vault_install_method in ['package', 'binary']
+    fail_msg: hashicorp_vault_install_method must be package or binary.
+
+- name: pre-req.yml - Validate cluster size and membership
+  ansible.builtin.assert:
+    that:
+      - hashicorp_vault_cluster_group in groups
+      - groups[hashicorp_vault_cluster_group] | length in [1, 3]
+      - inventory_hostname in groups[hashicorp_vault_cluster_group]
+    fail_msg: >-
+      Inventory group {{ hashicorp_vault_cluster_group }} must contain exactly one or three Vault hosts.
+
+- name: pre-req.yml - Validate Shamir initialization parameters
+  ansible.builtin.assert:
+    that:
+      - hashicorp_vault_key_shares | int == 5
+      - hashicorp_vault_key_threshold | int == 2
+    fail_msg: This role requires five unseal key shares and a threshold of two.
+  when: hashicorp_vault_initialize | bool
+
+- name: pre-req.yml - Check local Vault binary
+  ansible.builtin.stat:
+    path: "{{ role_path }}/files/{{ hashicorp_vault_binary_file }}"
+  delegate_to: localhost
+  become: false
+  register: hashicorp_vault_local_binary
+  when:
+    - hashicorp_vault_install_method == 'binary'
+    - not hashicorp_vault_binary_remote_src | bool
+
+- name: pre-req.yml - Require local Vault binary
+  ansible.builtin.assert:
+    that:
+      - hashicorp_vault_local_binary.stat.exists
+      - hashicorp_vault_local_binary.stat.isreg
+    fail_msg: >-
+      Put the Vault executable at roles/hashicorp-vault/files/{{ hashicorp_vault_binary_file }}
+      or enable hashicorp_vault_binary_remote_src.
+  when:
+    - hashicorp_vault_install_method == 'binary'
+    - not hashicorp_vault_binary_remote_src | bool
+
+- name: pre-req.yml - Import TLS prerequisite checks
+  ansible.builtin.include_tasks: ssl-pre-req.yml
+  when: hashicorp_vault_tls_enabled | bool
+  tags:
+    - ssl

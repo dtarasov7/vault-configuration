@@ -1,0 +1,37 @@
+---
+dependency:
+  name: galaxy
+  enabled: false
+driver:
+  name: docker
+platforms:
+  - name: vault-configuration-default
+    image: hashicorp/vault:2.0.4@sha256:5be49781ecf78bfe775c5309c6a4d9f4e9e040b6c885c99eb2b12fb69855e1a2
+    pre_build_image: true
+    command: vault server -dev -dev-listen-address=0.0.0.0:8200
+    env:
+      VAULT_DEV_ROOT_TOKEN_ID: molecule-test-only-token
+      VAULT_DISABLE_MLOCK: 'true'
+      SKIP_SETCAP: 'true'
+      SKIP_CHOWN: 'true'
+    published_ports:
+      - 127.0.0.1:18210:8200
+    capabilities: [IPC_LOCK]
+provisioner:
+  name: ansible
+  env:
+    ANSIBLE_ASYNC_DIR: ${MOLECULE_PROJECT_DIRECTORY}/../../.work/ansible-async
+    ANSIBLE_ROLES_PATH: ${MOLECULE_PROJECT_DIRECTORY}/..
+    ANSIBLE_LOCAL_TEMP: ${MOLECULE_PROJECT_DIRECTORY}/../../.work/molecule-local
+    ANSIBLE_REMOTE_TEMP: ${MOLECULE_PROJECT_DIRECTORY}/../../.work/molecule-remote
+  playbooks:
+    create: ../shared/create.yml
+    destroy: ../shared/destroy.yml
+  inventory:
+    group_vars:
+      all:
+        vault_configuration_execution_host: localhost
+verifier:
+  name: ansible
+scenario:
+  test_sequence: [dependency, destroy, syntax, create, prepare, converge, idempotence, verify, destroy]

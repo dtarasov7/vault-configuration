@@ -1,0 +1,14 @@
+---
+- name: ssl.yml - Install Vault TLS certificates
+  ansible.builtin.copy:
+    content: "{{ item.content | trim }}\n"
+    dest: "{{ hashicorp_vault_tls_dir }}/{{ item.name }}"
+    owner: "{{ hashicorp_vault_user }}"
+    group: "{{ hashicorp_vault_group }}"
+    mode: "{{ item.mode | default('0600') }}"
+    backup: true
+  loop: "{{ hashicorp_vault_certificates }}"
+  loop_control:
+    label: "{{ item.name }}"
+  notify: hashicorp_vault_restart
+  no_log: "{{ hashicorp_vault_no_log }}"

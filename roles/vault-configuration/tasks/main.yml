@@ -1,0 +1,8 @@
+---
+- name: main.yml - Validate execution scope
+  ansible.builtin.import_tasks: pre-req.yml
+  tags: [always, pre-req]
+
+- name: main.yml - Plan, apply or export API configuration
+  ansible.builtin.import_tasks: config.yml
+  tags: [config]
