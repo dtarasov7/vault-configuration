@@ -1,11 +1,16 @@
 # Changelog
 
-## Changes — 2026-10-26
+## 1.1.0 — 2026-11-10
+
+- Added safe transport diagnostics for DNS, connectivity, timeouts, TLS and certificate verification with verify_code. Messages include TLS validation settings, CA source, timeout and disabled proxy use without exposing secrets or raw exception text.
+- CA/client certificate/key loading failures identify the stage and safe reason; HTTP error and uncertain-write recovery semantics are preserved.
+
+### Changes — 2026-10-26
 
 - Added personal_access with identity_source=ldap_login, auth_mount and path_prefix: login-templated policies assigned to users/groups without enumerating LDAP members.
 - Accessors are resolved automatically, including mounts created in the same apply; recorded accessor changes require migration. Added portable YAML export/import while preserving entity_id behavior.
 
-## Documentation — 2026-10-26
+### Documentation — 2026-10-26
 
 - Added named LDAP personal paths, existing-entity assignments and a shared LDAP-group templated policy, with explicit current role limitations.
 

@@ -1,13 +1,18 @@
 """Run with python3 -m unittest discover -s roles/vault-configuration/tests/unit -v."""
 import copy
+import errno
+import io
 import json
 import os
 from pathlib import Path
 import stat
+import socket
+import ssl
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
+from urllib.error import HTTPError, URLError
 
 ROLE = Path(__file__).resolve().parents[2]
 (ROLE.parents[1] / '.work').mkdir(exist_ok=True)
@@ -528,6 +533,100 @@ class StateAndClientTests(unittest.TestCase):
         self.assertNotIn('secret-value', str(error))
         self.assertTrue(error.uncertain)
         self.assertIsNone(NoRedirect().redirect_request(None, None, 307, '', {}, 'https://untrusted.example'))
+
+    def test_transport_diagnostics_classify_without_exposing_secrets(self):
+        secret = 'secret-token-password-response'
+        certificate_error = ssl.SSLCertVerificationError(1, secret)
+        certificate_error.verify_code = 20
+        certificate_error.verify_message = secret
+        protocol_error = ssl.SSLError(1, secret)
+        protocol_error.reason = 'WRONG_VERSION_NUMBER'
+        unknown_tls_error = ssl.SSLError(1, secret)
+        unknown_tls_error.reason = secret
+        failures = [
+            (socket.gaierror(socket.EAI_NONAME, secret), 'dns_resolution_failed', 'DNS'),
+            (ConnectionRefusedError(errno.ECONNREFUSED, secret), 'connection_refused', 'listener'),
+            (ConnectionResetError(errno.ECONNRESET, secret), 'connection_reset', 'load balancer'),
+            (BrokenPipeError(errno.EPIPE, secret), 'connection_closed', 'load balancer'),
+            (OSError(errno.ENETUNREACH, secret), 'network_unreachable', 'routes'),
+            (OSError(errno.EHOSTUNREACH, secret), 'host_unreachable', 'routing'),
+            (socket.timeout(secret), 'timeout', 'timeout_seconds'),
+            (PermissionError(errno.EACCES, secret), 'permission_denied', 'execution user'),
+            (OSError(errno.EIO, secret), 'os_error', 'logs'),
+            (certificate_error, 'tls_certificate_verification_failed', 'verify_code=20'),
+            (protocol_error, 'tls_error', 'WRONG_VERSION_NUMBER'),
+            (unknown_tls_error, 'tls_error', 'mutual TLS'),
+            (URLError(secret), 'transport_error', 'proxies are disabled'),
+        ]
+        connection = {'address': 'https://vault.example.org', 'timeout_seconds': 7, 'validate_tls': True}
+        client = Client(connection, secret)
+        for failure, reason, hint in failures:
+            # Exercise both direct socket/TLS errors and urllib wrappers without network I/O.
+            # RU: Проверяем прямые ошибки сокета/TLS и обёртки urllib без сетевых запросов.
+            for wrapped in (failure, URLError(failure)):
+                with self.subTest(reason=reason, wrapped=type(wrapped).__name__):
+                    client.opener = Mock()
+                    client.opener.open.side_effect = wrapped
+                    with self.assertRaises(VaultHTTPError) as raised:
+                        client.request('GET', 'sys/health')
+                    message = str(raised.exception)
+                    self.assertIn('status=transport', message)
+                    self.assertIn('reason=' + reason, message)
+                    self.assertIn(hint, message)
+                    self.assertIn('ca_source=python_default_trust_store', message)
+                    self.assertIn('tls_validation=enabled', message)
+                    self.assertIn('timeout_seconds=7', message)
+                    self.assertIn('proxy=disabled', message)
+                    self.assertNotIn(secret, message)
+                    self.assertFalse(raised.exception.uncertain)
+        client.opener.open.side_effect = URLError(certificate_error)
+        with self.assertRaises(VaultHTTPError) as raised:
+            client.request('POST', 'auth/ldap/config', {'bindpass': secret})
+        self.assertTrue(raised.exception.uncertain)
+        self.assertIn('reconcile before retry', str(raised.exception))
+        self.assertNotIn(secret, str(raised.exception))
+
+    def test_tls_file_diagnostics_identify_stage_and_ca_source(self):
+        secret = 'secret-file-path-or-key-password'
+        connection = {'address': 'https://vault.example.org', 'timeout_seconds': 7,
+                      'validate_tls': True, 'ca_file': '/private/' + secret}
+        missing = FileNotFoundError(errno.ENOENT, secret, secret)
+        with patch('vault_configuration.client.ssl.create_default_context', side_effect=missing):
+            with self.assertRaises(ConfigurationError) as raised:
+                Client(connection, secret)
+        message = str(raised.exception)
+        self.assertIn('stage=load_ca', message)
+        self.assertIn('reason=file_not_found', message)
+        self.assertIn('ca_source=explicit_ca_file', message)
+        self.assertNotIn(secret, message)
+        connection.update(client_cert=secret, client_key=secret)
+        context = Mock()
+        mismatch = ssl.SSLError(1, secret)
+        mismatch.reason = 'KEY_VALUES_MISMATCH'
+        context.load_cert_chain.side_effect = mismatch
+        with patch('vault_configuration.client.ssl.create_default_context', return_value=context):
+            with self.assertRaises(ConfigurationError) as raised:
+                Client(connection, secret)
+        self.assertIn('stage=load_client_certificate', str(raised.exception))
+        self.assertIn('KEY_VALUES_MISMATCH', str(raised.exception))
+        self.assertNotIn(secret, str(raised.exception))
+
+    def test_http_failures_stay_redacted_and_missing_404_remains_optional(self):
+        secret = 'secret-server-response-and-token'
+        client = Client({'address': 'https://vault.example.org', 'timeout_seconds': 1,
+                         'validate_tls': True}, secret)
+        client.opener = Mock()
+        for method, status, uncertain in [('GET', 403, False), ('POST', 503, True)]:
+            response = io.BytesIO(secret.encode())
+            client.opener.open.side_effect = HTTPError('https://' + secret, status, secret, {}, response)
+            with self.assertRaises(VaultHTTPError) as raised:
+                client.request(method, 'sys/health')
+            self.assertEqual(raised.exception.status, status)
+            self.assertEqual(raised.exception.uncertain, uncertain)
+            self.assertNotIn(secret, str(raised.exception))
+            self.assertTrue(response.closed)
+        client.opener.open.side_effect = HTTPError('https://' + secret, 404, secret, {}, io.BytesIO())
+        self.assertIsNone(client.read('missing', missing=True))
 
 
 if __name__ == '__main__':

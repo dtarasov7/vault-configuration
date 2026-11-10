@@ -1,5 +1,7 @@
 # vault-configuration
 
+Версия: [1.1.0](VERSION).
+
 Декларативная Ansible-роль для Vault Community: Identity entities, aliases, внутренние и внешние группы, локальные userpass accounts, ACL KV v2 и назначения policies существующим AppRole/Kubernetes/JWT/OIDC roles. Исполняется на одном execution host через API. Не устанавливает Vault; создаёт отсутствующие KV v2 mounts и userpass/LDAP auth mounts, никогда не удаляет mounts, не читает и не изменяет пользовательские KV data, не выполняет login/renewal и не выпускает токены.
 
 Точная проверенная матрица и результаты находятся в [TEST-REPORT.md](TEST-REPORT.md) и [compatibility.json](compatibility.json). Неизвестные версии и внешние версии auth plugins отклоняются до изменений. `v2` в grants означает KV v2, а не версию сервера.
@@ -25,6 +27,26 @@ localhost ansible_connection=local
 ```
 
 Playbook должен содержать ровно один host на Vault/owner; `vault_configuration_execution_host` по умолчанию `localhost`. API, CA и client cert/key должны быть доступны именно execution host. Системные пользователи, systemd и logrotate не нужны.
+
+### Диагностика соединения
+
+При `status=transport` ошибка содержит `reason` и `hint` с причиной и направлением проверки. Например, `reason=tls_certificate_verification_failed; verify_code=20` означает, что Python не смог построить доверенную цепочку сертификата; проверьте CA на execution host и промежуточные сертификаты, отдаваемые сервером.
+
+| Reason | Что проверять на execution host |
+| --- | --- |
+| `dns_resolution_failed` | Имя Vault в connection_address и DNS. |
+| `connection_refused` | Адрес, порт, listener и состояние сервиса Vault. |
+| `network_unreachable`, `host_unreachable` | Маршрутизацию и firewall. |
+| `timeout` | Доступность Vault, firewall и connection_timeout_seconds. |
+| `connection_reset`, `connection_closed` | Логи Vault, балансировщика и TLS listener. |
+| `tls_certificate_verification_failed` | Цепочку доверия, сроки сертификата и соответствие имени/IP полю SAN; дополнительный `verify_code` уточняет причину. |
+| `tls_error` | HTTP/HTTPS, версии TLS, mTLS и PEM-файлы; известные ошибки также содержат `tls_reason`. |
+| `file_not_found`, `permission_denied` | Доступность файлов CA/client cert/key и права пользователя исполнения; также локальные ограничения сети. |
+| `os_error`, `transport_error` | Другие локальные ошибки; используйте подсказку и журналы execution host. |
+
+Сообщение также показывает `timeout_seconds`, `tls_validation`, `ca_source` и `proxy=disabled`. `ca_source=explicit_ca_file` означает использование `vault_configuration_config_connection_ca_file`, `python_default_trust_store` — хранилища Python по умолчанию. Успешный curl без `-k` не гарантирует одинаковое хранилище доверия у Python. При запуске Ansible в контейнере проверяйте доступность сети и сертификатов внутри него; переменные HTTP(S)_PROXY роль не использует.
+
+Ошибки чтения CA или клиентского сертификата содержат `stage=load_ca` либо `stage=load_client_certificate`. Токен, тело запроса/ответа и исходный текст исключения не публикуются. HTTP-ошибки сохраняют числовой статус (например, `403`); при неопределённом исходе записи сохраняется требование recovery перед повторной попыткой.
 
 ## Публичные переменные
 
@@ -85,13 +107,23 @@ Playbook должен содержать ровно один host на Vault/own
 
 ### Права KV v2
 
-| Permission | API prefix | Capabilities |
-| --- | --- | --- |
-| read / write / patch | data | read / create+update / patch |
-| list / read_metadata / update_metadata | metadata | list / read / create+update |
-| delete_latest | data | delete |
-| delete_versions / undelete_versions / destroy_versions | delete / undelete / destroy | update |
-| delete_metadata | metadata | delete |
+| Permission | API prefix | Capabilities | Что разрешает |
+| --- | --- | --- | --- |
+| `read` | data | read | Читать содержимое последней или указанной версии секрета. |
+| `write` | data | create, update | Создавать секрет и записывать новые версии его содержимого. |
+| `patch` | data | patch | Частично обновлять существующий секрет через PATCH с созданием новой версии. |
+| `list` | metadata | list | Просматривать имена ключей и каталогов без чтения содержимого секретов. |
+| `read_metadata` | metadata | read | Читать метаданные секрета и сведения о его версиях без их содержимого. |
+| `update_metadata` | metadata | create, update | Создавать и изменять метаданные ключа: custom metadata, лимит версий, CAS и автоматическое удаление версий. |
+| `delete_latest` | data | delete | Мягко удалять последнюю версию; её можно восстановить до уничтожения. |
+| `delete_versions` | delete | update | Мягко удалять явно указанные версии; их можно восстановить до уничтожения. |
+| `undelete_versions` | undelete | update | Восстанавливать мягко удалённые версии. |
+| `destroy_versions` | destroy | update | Безвозвратно уничтожать содержимое указанных версий. |
+| `delete_metadata` | metadata | delete | Безвозвратно удалять ключ, его метаданные и все версии секрета. |
+
+Полный пример для AD находится в [examples/ldap-ad.yml](examples/ldap-ad.yml): внешняя группа Vault `infra-admins-ad` связана с существующей группой AD с `cn=infra-admins` и получает все перечисленные permissions на `infra`. При загрузке примера сохраните `infra` в `vault_configuration_config_mounts`; пример также использует `apps`.
+
+В grant пустой `path: ""` и `scope: subtree` охватывают весь mount, включая LIST его корня. Для этого требуется `vault_configuration_config_safety_allow_mount_root: true`. Для `destroy_versions` и `delete_metadata` дополнительно требуется `vault_configuration_config_safety_allow_destructive_grants: true`; оба флага включены в примере. Эти настройки допускают соответствующие grants, а сами права назначаются только субъектам конкретного grant. Они дают полный доступ к секретам KV v2, но не управление настройками, удаление mount или администрирование Vault.
 
 Subtree даёт отдельные правила для самого пути и `/*`, поэтому `prod` не захватывает `production`. Exact+list отклоняется. Родительские LIST не выдаются автоматически. `read` допускает исторические версии; write не даёт destroy. `delete_metadata` удаляет все версии; destroy необратим. Роль лишь выдаёт эти права, не выполняет операции над пользовательскими секретами. Vault UI может потребовать дополнительных навигационных прав; гарантируется API-доступ по известному пути.
 

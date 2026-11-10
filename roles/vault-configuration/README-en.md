@@ -1,5 +1,7 @@
 # vault-configuration
 
+Version: [1.1.0](VERSION).
+
 Declarative Vault Community access management over HTTPS: Identity entities and aliases, internal/nested and external groups, local userpass accounts, KV v2 ACL compilation, and policy assignments to existing AppRole/Kubernetes/JWT/OIDC roles. Run on a single Ansible execution host per Vault/owner. The role creates missing KV v2 and userpass/LDAP auth mounts but never deletes mounts. It does not install Vault or configure directory servers, read or write application KV data, log in, renew credentials, issue tokens or create SecretIDs.
 
 See [TEST-REPORT.md](TEST-REPORT.md) and [compatibility.json](compatibility.json) for exact tested versions. Unknown servers and external auth plugin versions fail before writes. KV v2 and the Vault server version are separate concepts.
@@ -86,15 +88,45 @@ Omitted sections preserve their scope. Explicit `[]` detaches previously owned r
 
 Stable inventory IDs map to Vault UUIDs. Entity rename preserves personal paths. Login/mount/UUID/accessor changes require an explicit migration. Aliases are never moved, and entities are never merged.
 
+### Connection diagnostics
+
+Failures with `status=transport` include a safe `reason` and a troubleshooting `hint`. For example, `reason=tls_certificate_verification_failed; verify_code=20` means Python could not build a trusted certificate chain. Check the execution host CA trust and the intermediate certificates served by Vault.
+
+| Reason | Check on the execution host |
+| --- | --- |
+| `dns_resolution_failed` | Vault address and DNS. |
+| `connection_refused` | Address, port, listener and Vault service status. |
+| `network_unreachable`, `host_unreachable` | Routing and firewall. |
+| `timeout` | Vault availability, firewall and connection_timeout_seconds. |
+| `connection_reset`, `connection_closed` | Vault, load balancer and TLS listener logs. |
+| `tls_certificate_verification_failed` | Trust chain, certificate validity and hostname/IP SAN; `verify_code` narrows the cause. |
+| `tls_error` | HTTP/HTTPS, TLS versions, mTLS and PEM files; known failures include `tls_reason`. |
+| `file_not_found`, `permission_denied` | CA/client certificate/key files, execution user permissions and local network restrictions. |
+| `os_error`, `transport_error` | Other local failures; follow the hint and inspect execution host logs. |
+
+Messages also include `timeout_seconds`, `tls_validation`, `ca_source` and `proxy=disabled`. The CA source is `explicit_ca_file` when `vault_configuration_config_connection_ca_file` is supplied, otherwise `python_default_trust_store`. A successful curl without `-k` does not prove Python uses the same trust store. When running Ansible in a container, check connectivity and certificate availability inside it. The role ignores HTTP(S)_PROXY environment variables.
+
+CA/client certificate loading failures identify `stage=load_ca` or `stage=load_client_certificate`. Tokens, request/response bodies and raw exception text are never published. HTTP errors retain their numeric status, such as `403`. Uncertain writes still require recovery before retrying.
+
 ## KV permissions
 
-| Permission | API prefix | Capabilities |
-| --- | --- | --- |
-| read / write / patch | data | read / create+update / patch |
-| list / read_metadata / update_metadata | metadata | list / read / create+update |
-| delete_latest | data | delete |
-| delete_versions / undelete_versions / destroy_versions | delete / undelete / destroy | update |
-| delete_metadata | metadata | delete |
+| Permission | API prefix | Capabilities | Allows |
+| --- | --- | --- | --- |
+| `read` | data | read | Read the latest or a specified secret version. |
+| `write` | data | create, update | Create secrets and write new versions of their contents. |
+| `patch` | data | patch | Partially update an existing secret through PATCH, creating a new version. |
+| `list` | metadata | list | List key and directory names without reading secret contents. |
+| `read_metadata` | metadata | read | Read key metadata and version information without secret contents. |
+| `update_metadata` | metadata | create, update | Create and update key metadata: custom metadata, version limits, CAS and automatic version deletion. |
+| `delete_latest` | data | delete | Soft-delete the latest version; it remains recoverable until destroyed. |
+| `delete_versions` | delete | update | Soft-delete specified versions; they remain recoverable until destroyed. |
+| `undelete_versions` | undelete | update | Restore soft-deleted versions. |
+| `destroy_versions` | destroy | update | Permanently destroy the contents of specified versions. |
+| `delete_metadata` | metadata | delete | Permanently delete the key, its metadata and every secret version. |
+
+See [examples/ldap-ad.yml](examples/ldap-ad.yml) for a complete AD example: the external Vault group `infra-admins-ad` maps to an existing AD group with `cn=infra-admins` and receives every permission above on `infra`. Keep `infra` in `vault_configuration_config_mounts` when loading the example; it also uses `apps`.
+
+An empty `path: ""` with `scope: subtree` covers the entire mount, including root LIST. This requires `vault_configuration_config_safety_allow_mount_root: true`. The `destroy_versions` and `delete_metadata` permissions additionally require `vault_configuration_config_safety_allow_destructive_grants: true`; both flags are enabled in the example. These settings permit the corresponding grants; permissions are assigned only to the subjects of each grant. They provide full access to KV v2 secrets without mount configuration, mount deletion or Vault administration rights.
 
 Subtree emits a base rule and a separate `/*` rule: prod cannot match production. Exact+list is rejected. Ancestor LIST is never implicit. Read can access historical versions; write cannot destroy versions. Destroy is irreversible and metadata deletion removes all versions. The role grants capabilities without executing those operations on application data. Vault UI navigation may require separate rights; known-path API access is the supported interface.
 

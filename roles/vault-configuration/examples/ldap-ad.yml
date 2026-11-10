@@ -1,5 +1,9 @@
 ---
 # Include alongside your flat connection/owner settings. Directory entries already exist in AD.
+# Explicitly allow whole-mount grants and irreversible KV operations in this example.
+# RU: Явно разрешаем права на весь mount и необратимые операции KV в этом примере.
+vault_configuration_config_safety_allow_mount_root: true
+vault_configuration_config_safety_allow_destructive_grants: true
 vault_configuration_ldap_passwords:
   corporate-ad: "{{ vault_ad_bind_password }}"
 vault_configuration_ldap:
@@ -31,8 +35,36 @@ vault_configuration_groups:
     alias:
       auth_mount: ad
       name: payments-prod
+  - id: infra-admins-ad
+    name: infra-admins-ad
+    type: external
+    alias:
+      auth_mount: ad
+      # Existing AD group cn; lowercase because case_sensitive_names is false.
+      # RU: cn существующей группы AD; нижний регистр при case_sensitive_names: false.
+      name: infra-admins
 vault_configuration_grants:
   - id: payments-prod-ad-read
     subjects: [{kind: group, id: payments-prod-ad}]
     paths:
       - {mount: apps, path: payments/prod, scope: subtree, permissions: [read, list]}
+  - id: infra-full-access-ad
+    subjects: [{kind: group, id: infra-admins-ad}]
+    paths:
+      # Empty path with subtree covers all secrets in infra, including root LIST.
+      # RU: Пустой путь с subtree охватывает все секреты infra, включая LIST корня.
+      - mount: infra
+        path: ""
+        scope: subtree
+        permissions:
+          - read
+          - write
+          - patch
+          - list
+          - read_metadata
+          - update_metadata
+          - delete_latest
+          - delete_versions
+          - undelete_versions
+          - destroy_versions
+          - delete_metadata
