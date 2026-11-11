@@ -9,12 +9,11 @@ from .common import check, merge, digest
 from .compiler import path, PERMISSIONS, SEGMENT
 
 DEFAULTS = {
-    'schema_version': 1, 'mode': 'dry', 'compatibility_profile': 'community-validated',
+    'mode': 'dry',
     'connection': {'validate_tls': True, 'timeout_seconds': 30, 'allow_insecure_http': False},
     'mounts': ['certs', 'infra', 'apps', 'cicd', 'users'],
-    'management': {'prune': False, 'prune_identities': False, 'adoption': [],
-                   'deletion_approvals': [], 'recovery': {}},
-    'safety': {'max_deletions': 5, 'allow_empty_desired': False, 'allow_mount_root': False,
+    'management': {'adoption': []},
+    'safety': {'allow_mount_root': False,
                'allow_destructive_grants': False, 'protected_policies': ['root', 'default'],
                'protected_entities': [], 'protected_groups': []},
 }
@@ -95,7 +94,7 @@ def validate(config, sections, export):
     Raises:
         ConfigurationError: Invalid types, references, safety settings or cycles / неверные типы, ссылки, защитные настройки или циклы.
     """
-    fields(config, list(DEFAULTS) + ['report_destination', 'expected_plan_digest'], [], 'config')
+    fields(config, list(DEFAULTS) + ['expected_plan_digest'], [], 'config')
     for key in ('connection', 'management', 'safety'):
         allowed = set(DEFAULTS[key])
         required = []
@@ -103,14 +102,11 @@ def validate(config, sections, export):
             allowed |= {'address', 'ca_file', 'client_cert', 'client_key'}
             required = ['address']
         if key == 'management':
-            allowed |= {'owner', 'policy_prefix', 'state_file'}
-            required = ['owner', 'policy_prefix', 'state_file']
+            allowed |= {'owner', 'policy_prefix'}
+            required = ['owner', 'policy_prefix']
         fields(config.get(key, {}), allowed, required, key)
     result = merge(DEFAULTS, config)
-    typed(result['schema_version'], int, 'schema_version')
-    check(result['schema_version'] == 1, 'Unsupported schema version')
-    choices(result['mode'], ['apply', 'dry', 'export'], 'mode')
-    choices(result['compatibility_profile'], ['community-validated', 'community-candidate'], 'compatibility_profile')
+    choices(result['mode'], ['apply', 'dry', 'export', 'matrix'], 'mode')
     connection = result['connection']
     for key in ('validate_tls', 'allow_insecure_http'):
         typed(connection[key], bool, key)
@@ -134,36 +130,21 @@ def validate(config, sections, export):
     management = result['management']
     name(management['owner'], 'owner')
     name(management['policy_prefix'], 'policy_prefix')
-    check(isinstance(management['state_file'], str) and management['state_file'].startswith('/'),
-          'state_file must be an absolute execution-host path')
-    check(management['state_file'].endswith('.json'), 'Registry files must have .json extension for peer-owner discovery')
-    for key in ('prune', 'prune_identities'):
-        typed(management[key], bool, key)
     for key, value in result['safety'].items():
-        typed(value, int if key == 'max_deletions' else list if key.startswith('protected_') else bool, key)
+        typed(value, list if key.startswith('protected_') else bool, key)
         if key.startswith('protected_'):
             strings(value, key)
-    check(result['safety']['max_deletions'] >= 0, 'max_deletions must be nonnegative')
-    for key in ('adoption', 'deletion_approvals'):
+    for key in ('adoption',):
         typed(management[key], list, key)
         seen = set()
         for entry in management[key]:
-            allowed = ['kind', 'id', 'uuid', 'hash'] if key == 'adoption' else ['kind', 'id', 'hash', 'dependencies_cleared']
+            allowed = ['kind', 'id', 'uuid', 'hash']
             fields(entry, allowed, ['kind', 'id'], key)
             choices(entry['kind'], ['entity', 'group', 'policy', 'userpass', 'auth_role', 'entity_alias', 'group_alias', 'ldap_config'], key)
             check((entry['kind'], entry['id']) not in seen, key + ': duplicates')
             seen.add((entry['kind'], entry['id']))
-            if key == 'adoption':
-                check(('uuid' in entry) != ('hash' in entry), 'Adoption requires exactly one expected uuid or hash')
-            else:
-                check(isinstance(entry.get('hash'), str) and entry.get('dependencies_cleared') is True,
-                      'Deletion approval needs hash and dependencies_cleared: true')
-    recovery = management['recovery']
-    fields(recovery, ['digest', 'outcome'], [], 'recovery')
-    if recovery:
-        check(set(recovery) == {'digest', 'outcome'}, 'Incomplete recovery decision')
-        choices(recovery['outcome'], ['applied', 'not_applied'], 'recovery.outcome')
-    for key in ('report_destination', 'expected_plan_digest'):
+            check(('hash' in entry) != ('uuid' in entry), 'Adoption requires exactly one expected uuid or hash')
+    for key in ('expected_plan_digest',):
         if key in result:
             check(isinstance(result[key], str) and result[key], 'Invalid ' + key)
     normalized = copy.deepcopy(sections)
@@ -173,8 +154,6 @@ def validate(config, sections, export):
         if items is None:
             continue
         typed(items, list, section)
-        check(items or not management['prune'] or result['safety']['allow_empty_desired'],
-              'Empty managed section with prune requires allow_empty_desired')
         indices[section] = {}
         seen_names = set()
         for item in items:
@@ -183,7 +162,7 @@ def validate(config, sections, export):
             check(item['id'] not in indices[section], section + ': duplicate id')
             indices[section][item['id']] = item
             if section == 'users':
-                fields(item, ['id', 'name', 'source', 'auth_mount', 'login', 'password', 'password_revision',
+                fields(item, ['id', 'name', 'source', 'auth_mount', 'login', 'password',
                               'password_policy', 'disabled', 'aliases', 'token_parameters'],
                        ['id', 'name', 'source'], section)
                 name(item['name'], 'user.name')
@@ -193,13 +172,12 @@ def validate(config, sections, export):
                 for entry in item['aliases']:
                     alias(entry)
                 if item['source'] == 'userpass':
-                    check({'auth_mount', 'login', 'password_revision'} <= set(item), 'userpass missing login/mount/revision')
+                    check({'auth_mount', 'login'} <= set(item), 'userpass missing login/mount')
                     path(item['auth_mount'])
                     name(item['login'], 'login')
                     check(item['login'] == item['login'].lower() and not item['login'].startswith('-') and
                           not item['login'].endswith('.'), 'Invalid lowercase userpass login')
-                    check(isinstance(item['password_revision'], str) and item['password_revision'], 'Invalid password_revision')
-                    choices(item.setdefault('password_policy', 'on_create'), ['on_create', 'on_revision'], 'password_policy')
+                    choices(item.setdefault('password_policy', 'on_create'), ['on_create', 'always'], 'password_policy')
                     if 'password' in item:
                         typed(item['password'], str, 'password')
                     params = item.setdefault('token_parameters', {})

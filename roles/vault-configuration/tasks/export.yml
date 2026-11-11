@@ -1,8 +1,26 @@
 ---
 - name: export.yml - Export supported configuration without evaluating credentials or desired sections
   vault_configuration:
-    export: '{{ vault_configuration_export }}'
-  delegate_to: '{{ vault_configuration_execution_host }}'
+    export: |-
+      {{ {
+        'scope': vault_configuration_export_scope,
+        'destination': vault_configuration_export_destination,
+        'audit_destination': vault_configuration_export_audit_destination,
+        'allow_partial': vault_configuration_export_allow_partial,
+        'mounts': vault_configuration_export_mounts,
+        'auth_mounts': vault_configuration_export_auth_mounts,
+        'entities': vault_configuration_export_entities,
+        'groups': vault_configuration_export_groups,
+        'policies': vault_configuration_export_policies,
+        'auth_roles': vault_configuration_export_auth_roles,
+        'users': vault_configuration_export_users,
+        'ldap': vault_configuration_export_ldap,
+      } }}
+  delegate_to: '{{ vault_configuration_context.context.delegate }}'
+  become: false
+  vars:
+    ansible_connection: '{{ hostvars[inventory_hostname].vault_configuration_context.context.connection }}'
+    ansible_python_interpreter: '{{ hostvars[inventory_hostname].vault_configuration_context.context.interpreter }}'
   register: vault_configuration_result
   no_log: true
   ignore_errors: true

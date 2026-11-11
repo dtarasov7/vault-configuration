@@ -10,7 +10,8 @@ ROLE = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROLE / 'module_utils'))
 from vault_configuration.client import Client
 from vault_configuration.common import ConfigurationError, check
-from vault_configuration.state import atomic_write
+sys.path.insert(0, str(ROLE / 'action_plugins'))
+from vault_configuration_report import atomic_write
 from vault_configuration.validation import DEFAULTS
 
 

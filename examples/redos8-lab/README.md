@@ -61,7 +61,7 @@ ansible-playbook -i examples/redos8-lab/hosts.ini examples/redos8-lab/02-configu
 
 В этом тестовом inventory `vault_configuration_token` читает initial root token из `.state/vault-init.json`. Вторая роль использует этот единственный токен для всех операций. Можно заменить выражение в `30-credentials.yml` готовым административным токеном; его выдача описана в [README роли](../../roles/vault-configuration/README.md#создание-токена-через-root-token).
 
-Вторая роль работает с контроллера через API. Она сама создаёт отсутствующие `userpass` и `ldap` auth mounts, затем пользователей, группы, aliases, KV v2 mounts и права. Секреты берутся из inventory; чтения файлов LDAP-сервера по SSH нет. Реестр владения хранится в `.state/registry/redos8-lab.json`. Сохраните `.state/` между запусками; каталог исключён из Git.
+Вторая роль работает с контроллера через API. Она сама создаёт отсутствующие `userpass` и `ldap` auth mounts, затем пользователей, группы, aliases, KV v2 mounts и права. Секреты берутся из inventory; чтения файлов LDAP-сервера по SSH нет. Реестра владения у API-роли нет: повторные запуски используют metadata и префикс политик в Vault. В `.state/` сохраняются init/unseal-материалы установочной роли и результаты dry/export на контроллере; эти файлы сохраняйте, каталог исключён из Git.
 
 ## Пользователи и права
 
@@ -85,7 +85,7 @@ ansible-playbook -i examples/redos8-lab/hosts.ini examples/redos8-lab/02-configu
 ansible-playbook -i examples/redos8-lab/hosts.ini examples/redos8-lab/02-configure.yml --check --diff
 ```
 
-Dry/check планируют создание отсутствующих userpass/LDAP mounts, не записывая изменения. `--check` установки свежего сервера первым playbook не поддерживается. Для смены пароля существующего локального пользователя задайте `password_policy: on_revision` и увеличьте `password_revision`; для ротации bind-пароля измените `bind_password_revision`.
+Dry/check планируют создание отсутствующих userpass/LDAP mounts, не записывая изменения. `--check` установки свежего сервера первым playbook не поддерживается. Для явной смены пароля локального пользователя задайте `password_policy: always`; для bind-пароля — `bind_password_policy: always`. После смены верните on_create, иначе пароль записывается при каждом apply.
 
 Обычный `dry` сохраняет результат в YAML на контроллере: `examples/redos8-lab/.state/dry-result.yml`. Имя и путь заданы переменной `vault_configuration_config_report_destination` в `group_vars/vault/20-configuration.yml`; измените её для своего inventory. Условие в этом примере включает сохранение только в режиме dry, чтобы apply не перезаписывал план. Отчёт содержит mode, plan с digest/operations и три сводки summary. Токены и пароли в него не включаются; файл имеет права 0600. Повторный dry с тем же планом не меняет файл. При `--check` файл не создаётся и не обновляется.
 
@@ -101,4 +101,6 @@ Dry/check планируют создание отсутствующих userpas
 ansible-playbook -i examples/redos8-lab/hosts.ini examples/redos8-lab/02-configure.yml -e vault_configuration_config_mode=export
 ```
 
-Файл `vault-access-manager-export.yml` содержит обычный YAML с переменными роли, готовый для vars_files. Отдельный `vault-access-manager-export.yml.audit.json` содержит JSON-аудит. Имена меняются через `vault_configuration_export.destination` и `audit_destination`. Повторный export перезапишет прежний JSON-вариант основного файла в YAML, не изменяя Vault.
+Файл `vault-access-manager-export.yml` содержит обычный YAML с переменными роли, готовый для vars_files. Отдельный `vault-access-manager-export.yml.audit.json` содержит JSON-аудит. Имена меняются через `vault_configuration_export_destination` и `vault_configuration_export_audit_destination`. Повторный export перезапишет прежний JSON-вариант основного файла в YAML, не изменяя Vault.
+
+API-роли нужен DNS target `redos8`, разрешаемый с контроллера (ansible_host определяет только SSH). По умолчанию используются api_execution: controller, api_scheme: http и порт установочной роли. Если API доступен только с самого сервера, задайте vault_configuration_api_execution: target и vault_configuration_api_use_loopback: true. Playbook настройки по-прежнему только вызывает роль и отключает gather_facts.

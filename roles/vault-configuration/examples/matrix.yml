@@ -1,0 +1,57 @@
+---
+# Пример офлайн-матрицы: пароли и API-токен не требуются.
+# Run / Запуск:
+# ansible-playbook -i roles/vault-configuration/examples/matrix.yml roles/vault-configuration/examples/matrix-playbook.yml
+all:
+  children:
+    vault:
+      hosts:
+        vault.example.org:
+      vars:
+        vault_configuration_config_mode: matrix
+        vault_configuration_matrix_source: inventory
+        vault_configuration_matrix_destination: ./vault-access-matrix.csv
+        vault_configuration_config_mounts: [infra, users]
+        vault_configuration_config_safety_allow_mount_root: true
+        vault_configuration_config_safety_allow_destructive_grants: true
+        vault_configuration_users:
+          - id: alice
+            name: alice
+            source: external
+            aliases: [{auth_mount: ldap, name: alice}]
+          - id: bob
+            name: bob
+            source: external
+            aliases: [{auth_mount: ldap, name: bob}]
+        vault_configuration_groups:
+          - id: developers
+            name: developers
+            type: internal
+            members: [alice, bob]
+        vault_configuration_grants:
+          - id: infra-admin
+            subjects: [{kind: group, id: developers}]
+            paths:
+              - mount: infra
+                path: ""
+                scope: subtree
+                permissions:
+                  - list
+                  - read
+                  - write
+                  - patch
+                  - read_metadata
+                  - update_metadata
+                  - delete_latest
+                  - delete_versions
+                  - undelete_versions
+                  - destroy_versions
+                  - delete_metadata
+        vault_configuration_personal_access:
+          enabled: true
+          identity_source: ldap_login
+          auth_mount: ldap
+          mount: users
+          path_prefix: dep1
+          subjects: [{kind: group, id: developers}]
+          permissions: [list, read, write]

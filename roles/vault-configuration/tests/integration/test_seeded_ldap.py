@@ -101,7 +101,8 @@ seed.seed(args,seed.LDAP(args.state_dir),account='openldap')
                     time.sleep(0.05)
             else:
                 self.fail('Isolated Vault startup timed out')
-            overrides = {'ansible_connection': 'local', 'ansible_become': False,
+            overrides = {'vault_configuration_api_execution': 'target', 'vault_configuration_api_use_loopback': True,
+                         'ansible_connection': 'local', 'ansible_become': False,
                          'ansible_python_interpreter': sys.executable,
                          'vault_lab_server_address': '127.0.0.1', 'hashicorp_vault_api_port': port,
                          'vault_lab_state_dir': str(state_dir), 'vault_lab_ldap_base_dn': accounts['base_dn'],
@@ -246,8 +247,8 @@ finally:
         server = Server(directory)
         try:
             configuration = copy.deepcopy(DEFAULTS)
-            configuration.update(mode='apply', compatibility_profile='community-validated', connection=server.connection)
-            configuration['management'].update(owner='seeded-ldap', policy_prefix='vam-seeded-', state_file=str(directory / 'registry' / 'state.json'))
+            configuration.update(mode='apply', connection=server.connection)
+            configuration['management'].update(owner='seeded-ldap', policy_prefix='vam-seeded-')
             sections = {key[len('vault_configuration_'):]: value for key, value in variables.items()}
             result = run(configuration, sections, server.token, ldap_passwords=credentials['vault_configuration_ldap_passwords'])
             self.assertTrue(result['changed'])

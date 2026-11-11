@@ -1,5 +1,7 @@
 """Real LDAP logins and create-only mounts on an isolated Vault and OpenLDAP."""
 import copy
+import csv
+import io
 import json
 import os
 from pathlib import Path
@@ -83,14 +85,13 @@ member: uid=alice,ou=people,dc=example,dc=test
 
     def config(self, name):
         configuration = copy.deepcopy(DEFAULTS)
-        configuration.update(mode='apply', compatibility_profile='community-candidate', connection=self.server.connection)
+        configuration.update(mode='apply', connection=self.server.connection)
         configuration['mounts'] = [name]
-        configuration['management'].update(owner=name, policy_prefix='vam-' + name + '-',
-                                            state_file=str(self.directory / name / 'state.json'))
+        configuration['management'].update(owner=name, policy_prefix='vam-' + name + '-')
         return configuration
 
     def integration(self, name):
-        return [{'id': name, 'auth_mount': name, 'bind_password_revision': 'r1', 'allow_insecure_ldap': True,
+        return [{'id': name, 'auth_mount': name, 'bind_password_policy': 'on_create', 'allow_insecure_ldap': True,
                  'config': {'url': 'ldap://127.0.0.1:' + str(self.ldap_port),
                             'binddn': 'cn=admin,dc=example,dc=test', 'userdn': 'ou=people,dc=example,dc=test',
                             'groupdn': 'ou=groups,dc=example,dc=test', 'userattr': 'uid', 'groupattr': 'cn',
@@ -130,12 +131,14 @@ member: uid=alice,ou=people,dc=example,dc=test
             self.client.request('POST', 'auth/' + name + '/login/alice', {'password': 'wrong-fixture'})
         exported = self.directory / name / 'export.yml'
         result = run(dict(config, mode='export'), {}, self.server.token, export={'destination': str(exported)})
-        exported_text = exported.read_text()
+        exported.parent.mkdir(parents=True, exist_ok=True)
+        exported_text = yaml.safe_dump(result['_export_variables'], allow_unicode=True, sort_keys=True)
+        exported.write_text(exported_text)
         variables = yaml.safe_load(exported_text)
         self.assertFalse(exported_text.lstrip().startswith('{'))
         self.assertEqual(variables['vault_configuration_ldap'][0]['auth_mount'], name)
         self.assertNotIn('fixture-admin', exported.read_text())
-        self.assertNotIn('fixture-admin', Path(config['management']['state_file']).read_text())
+        self.assertNotIn('fixture-admin', json.dumps(result))
         # The exported Go filters must survive a real vars_files round trip on another Vault.
         target_directory = self.directory / 'ldap-target'
         target_directory.mkdir()
@@ -146,15 +149,13 @@ member: uid=alice,ou=people,dc=example,dc=test
             selected_yaml = yaml.safe_dump(selected_variables, allow_unicode=True, sort_keys=True)
             selected_export.write_text(selected_yaml)
             target_vars = {'vault_configuration_config_mode': 'apply',
-                           'vault_configuration_config_compatibility_profile': 'community-candidate',
-                           'vault_configuration_config_connection_address': target.client.address,
-                           'vault_configuration_config_connection_allow_insecure_http': True,
+                           'vault_configuration_api_scheme': 'http',
+                           'vault_configuration_api_port': target.port,
                            'vault_configuration_config_mounts': [],
                            'vault_configuration_config_management_owner': 'ldap-import',
                            'vault_configuration_config_management_policy_prefix': 'vam-ldap-import-',
-                           'vault_configuration_config_management_state_file': str(target_directory / 'registry' / 'state.json'),
                            'vault_configuration_token': target.token,
-                           'vault_configuration_ldap_passwords': {name: 'fixture-admin'}}
+                           'vault_configuration_ldap_passwords': {entry['id']: 'fixture-admin' for entry in variables['vault_configuration_ldap']}}
             target_file = target_directory / 'target-vars.json'
             target_file.write_text(json.dumps(target_vars))
             target_file.chmod(0o600)
@@ -172,9 +173,21 @@ member: uid=alice,ou=people,dc=example,dc=test
                              '(&(objectClass=groupOfNames)(member={{.UserDN}}))')
         finally:
             target.close()
+        # Matrix combines observed Identity membership with direct LDAP group mappings
+        # for the LDAP login only, even if mappings were added after the previous login.
+        direct_policy = name + '-matrix-direct'
+        self.client.request('POST', 'sys/policies/acl/' + direct_policy,
+                            {'policy': 'path "' + name + '/data/audit/*" { capabilities = ["read"] }'})
+        self.client.request('POST', 'auth/' + name + '/groups/developers', {'policies': [direct_policy]})
+        matrix = run(dict(config, mode='matrix'), {}, self.server.token)
+        matrix_rows = {row['path']: row for row in csv.DictReader(io.StringIO(matrix['_matrix_csv']), delimiter=';')
+                       if row['mount'] == name}
+        self.assertEqual(matrix_rows['payments/prod/*']['a:' + name + '/alice'], '.R.........')
+        self.assertEqual(matrix_rows['payments/prod/*']['a:' + name + '/bob'], '...........')
+        self.assertEqual(matrix_rows['audit/*']['a:' + name + '/alice'], '.R.........')
+        self.assertEqual(matrix_rows['audit/*']['a:' + name + '/bob'], '...........')
+        self.assertNotIn('fixture-admin', matrix['_matrix_notes'])
         # An empty desired LDAP scope and prune can never remove the integration or its mount.
-        config['management'].update(prune=True, prune_identities=True)
-        config['safety']['allow_empty_desired'] = True
         client = Client(self.server.connection, self.server.token)
         config['mounts'] = []
         run(config, {'ldap': []}, self.server.token, client=client)
@@ -268,13 +281,11 @@ member: uid=alice,ou=people,dc=example,dc=test
         charlie.request('POST', 'users/data/dep1/charlie/key', {'data': {'value': 'charlie-private'}})
         with self.assertRaises(VaultHTTPError):
             charlie.read('users/data/dep1/alice/key')
-        registry_text = Path(configuration['management']['state_file']).read_text()
-        registry = json.loads(registry_text)
-        self.assertFalse(any(record['kind'] == 'entity' for record in registry['resources'].values()))
-
         exported = self.directory / name / 'export.yml'
-        run(dict(configuration, mode='export'), {}, automation_token, export={'destination': str(exported)})
-        export_text = exported.read_text()
+        result = run(dict(configuration, mode='export'), {}, automation_token)
+        exported.parent.mkdir(parents=True, exist_ok=True)
+        export_text = yaml.safe_dump(result['_export_variables'], allow_unicode=True, sort_keys=True)
+        exported.write_text(export_text)
         variables = yaml.safe_load(export_text)
         exported_personal = variables['vault_configuration_personal_access']
         self.assertEqual(exported_personal['auth_mount'], mount)
@@ -287,14 +298,13 @@ member: uid=alice,ou=people,dc=example,dc=test
         target = Server(target_directory)
         try:
             target_vars = {'vault_configuration_config_mode': 'apply',
-                           'vault_configuration_config_connection_address': target.client.address,
-                           'vault_configuration_config_connection_allow_insecure_http': True,
+                           'vault_configuration_api_scheme': 'http',
+                           'vault_configuration_api_port': target.port,
                            'vault_configuration_config_mounts': ['users'],
                            'vault_configuration_config_management_owner': 'personal-import',
                            'vault_configuration_config_management_policy_prefix': 'vam-personal-import-',
-                           'vault_configuration_config_management_state_file': str(target_directory / 'registry/state.json'),
                            'vault_configuration_token': target.token,
-                           'vault_configuration_ldap_passwords': {name: 'fixture-admin'}}
+                           'vault_configuration_ldap_passwords': {entry['id']: 'fixture-admin' for entry in variables['vault_configuration_ldap']}}
             target_file = target_directory / 'target-vars.json'
             target_vars_json = json.dumps(target_vars)
             target_file.write_text(target_vars_json)

@@ -30,7 +30,7 @@ provisioner:
   inventory:
     group_vars:
       all:
-        vault_configuration_execution_host: localhost
+        vault_configuration_api_execution: controller
 verifier:
   name: ansible
 scenario:

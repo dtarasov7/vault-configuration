@@ -1,10 +1,12 @@
 """Complete supported management view. Never reads KV data or logs in."""
+import re
+
 from .adapters import ADAPTERS, TOKEN, policies, identity_fields, alias_fields
 from .common import check, digest
 from .ldap import ldap_fields
 
-# Enabled only after tests record exact versions in compatibility.json.
-PROFILES = {'community-validated': ('2.0.0', '2.0.4'), 'community-candidate': ('2.0.0', '2.0.4')}
+# The entire 2.0.x series is accepted as validated; other 2.x versions only warn.
+# RU: Ветка 2.0.x считается проверенной; остальные 2.x вызывают только предупреждение.
 OWNER_KEY = 'vam_owner'
 ID_KEY = 'vam_id'
 
@@ -27,17 +29,22 @@ def snapshot(client, config):
     health = client.request('GET', 'sys/health')
     check(health.get('initialized') is True and health.get('sealed') is False, 'Vault must be initialized and unsealed')
     check(bool(health.get('cluster_id')), 'Vault cluster UUID is unavailable')
-    check(health.get('version') in PROFILES[config['compatibility_profile']],
-          'Server version is not validated by the selected compatibility profile')
+    version = health.get('version')
+    check(isinstance(version, str) and re.fullmatch(r'2\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)*', version),
+          'Only Vault 2.x is supported; Vault 1.x and other major versions are unsupported')
+    warnings = []
+    if not version.startswith('2.0.'):
+        warnings.append({'kind': 'compatibility', 'version': version,
+                         'reason': 'Vault ' + version + ' is outside the validated 2.0.x series; continuing with API validation'})
     mounts = client.read('sys/mounts')
-    for mount in config['mounts']:
+    for mount in ([] if config['mode'] == 'matrix' else config['mounts']):
         details = mounts.get(mount + '/', {})
         check(not details or (details.get('type') == 'kv' and details.get('options', {}).get('version') == '2'),
               'Existing selected mount must be KV v2; conversion/removal is forbidden')
     auth = client.read('sys/auth')
-    view = {'cluster_id': health['cluster_id'], 'version': health['version'], 'mounts': mounts,
+    view = {'cluster_id': health['cluster_id'], 'version': version, 'warnings': warnings, 'mounts': mounts,
             'auth': auth, 'objects': {}, 'entities': {}, 'groups': {}, 'aliases': {}, 'userpass': {},
-            'roles': {}, 'policies': {}, 'automation_entity': '', 'ldap_external_policies': {}}
+            'roles': {}, 'policies': {}, 'ldap_groups': {}, 'ldap_users': {}, 'ldap_matrix_config': {}, 'automation_entity': '', 'ldap_external_policies': {}}
     for mount_path, details in mounts.items():
         view['objects']['sys/mounts/' + mount_path.rstrip('/')] = {
             'type': details['type'], 'options': details.get('options') or {}}
@@ -60,7 +67,7 @@ def snapshot(client, config):
             view['aliases'][uuid] = entry
             view['objects'][entry['path']] = entry['data']
     for name in sorted(client.list('sys/policies/acl')):
-        if name in {'root', 'default'}:
+        if name == 'root' or name == 'default' and config['mode'] != 'matrix':
             continue
         data = client.read('sys/policies/acl/' + name)
         entry = {'path': 'sys/policies/acl/' + name, 'data': {'policy': data['policy']}}
@@ -73,6 +80,17 @@ def snapshot(client, config):
             raw_ldap = client.read('auth/' + mount + '/config', missing=True)
             if raw_ldap and raw_ldap.get('token_policies'):
                 view['ldap_external_policies'][mount] = raw_ldap['token_policies']
+            if config['mode'] == 'matrix':
+                view['ldap_matrix_config'][mount] = {key: (raw_ldap or {}).get(key) for key in
+                    ('token_policies', 'token_no_default_policy', 'case_sensitive_names')}
+                for category in ('groups', 'users'):
+                    for name in sorted(client.list('auth/' + mount + '/' + category)):
+                        check('/' not in name and name not in {'.', '..'}, 'Unsupported LDAP mapping name')
+                        api = 'auth/' + mount + '/' + category + '/' + name
+                        mapping = client.read(api)
+                        view['ldap_' + category][mount + '/' + name] = {
+                            'mount': mount, 'name': name, 'path': api,
+                            'data': {key: mapping[key] for key in ('policies', 'groups') if key in mapping}}
             data = ldap_fields(raw_ldap)
             if data is not None:
                 view['objects']['auth/' + mount + '/config'] = data

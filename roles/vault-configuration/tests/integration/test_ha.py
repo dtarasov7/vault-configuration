@@ -78,10 +78,10 @@ class RaftFailover(unittest.TestCase):
                 for mount in DEFAULTS['mounts']:
                     clients[0].request('POST', 'sys/mounts/' + mount, {'type': 'kv', 'options': {'version': '2'}})
                 config = copy.deepcopy(DEFAULTS)
-                config.update(mode='apply', compatibility_profile='community-candidate')
+                config.update(mode='apply')
                 config['connection']['address'] = clients[0].address
                 config['connection']['allow_insecure_http'] = True
-                config['management'].update(owner='ha', policy_prefix='vam-ha-', state_file=str(Path(directory) / 'registry' / 'ha.json'))
+                config['management'].update(owner='ha', policy_prefix='vam-ha-')
                 sections = {'users': [{'id': 'alice', 'name': 'alice', 'source': 'external'}]}
                 self.assertTrue(run(config, sections, clients[0].token)['changed'])
                 processes[0].terminate()

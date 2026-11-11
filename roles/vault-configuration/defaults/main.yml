@@ -1,59 +1,99 @@
 ---
-# Flat role settings; override each variable independently in inventory.
-vault_configuration_config_schema_version: 1
+# Где выполняются API-запросы: controller — Ansible-контроллер, target — единственный выбранный host.
+vault_configuration_api_execution: controller
+# Схема подключения API Vault; https либо явно выбранный http.
+vault_configuration_api_scheme: https
+# Порт API Vault; hostname всегда берётся из inventory_hostname, а не ansible_host.
+vault_configuration_api_port: 8200
+# Соединяться с 127.0.0.1 только при execution: target; проверка TLS задаётся отдельно.
+vault_configuration_api_use_loopback: false
+# Режим: dry — план, apply — применение, export — экспорт, matrix — CSV назначенных прав KV v2.
 vault_configuration_config_mode: dry
-# Inventory may override the full path/name. Ordinary dry saves a YAML report.
-# Other modes keep report output opt-in.
+# Отчёт всегда на контроллере: YAML обязателен в dry, JSON в apply необязателен; пути от playbook_dir.
 vault_configuration_config_report_destination: "{{ (playbook_dir ~ '/vault-configuration-' ~ inventory_hostname ~ '-dry.yml') if vault_configuration_config_mode == 'dry' else omit }}"
-vault_configuration_config_compatibility_profile: community-validated
+# Проверять доверие и соответствие имени TLS-сертификата сервера Vault.
 vault_configuration_config_connection_validate_tls: true
+# Файл CA на execution host; null — хранилище доверия Python по умолчанию.
+vault_configuration_config_connection_ca_file: null
+# Клиентский сертификат mTLS; null — не использовать; задаётся вместе с client_key.
+vault_configuration_config_connection_client_cert: null
+# Приватный ключ mTLS на execution host; null — не использовать.
+vault_configuration_config_connection_client_key: null
+# Таймаут запроса к API Vault в секундах; допустимо от 1 до 600.
 vault_configuration_config_connection_timeout_seconds: 30
-vault_configuration_config_connection_allow_insecure_http: false
-vault_configuration_config_connection_address: https://vault.example.org:8200
+# Пути KV v2: отсутствующие движки создаются, существующие проверяются; удаление запрещено.
 vault_configuration_config_mounts:
-- certs
-- infra
-- apps
-- cicd
-- users
-vault_configuration_config_management_prune: false
-vault_configuration_config_management_prune_identities: false
+  - certs
+  - infra
+  - apps
+  - cicd
+  - users
+# Принятие существующих объектов: [{kind, id, uuid}] либо [{kind, id, hash}].
 vault_configuration_config_management_adoption: []
-vault_configuration_config_management_deletion_approvals: []
+# Постоянный идентификатор владельца объектов; смена требует миграции.
 vault_configuration_config_management_owner: platform-team
+# Префикс ACL-политик; смена для управляемых политик требует миграции.
 vault_configuration_config_management_policy_prefix: vam-platform-
-vault_configuration_config_management_state_file: /var/lib/ansible/vault-access/platform-state.json
-vault_configuration_config_safety_max_deletions: 5
-vault_configuration_config_safety_allow_empty_desired: false
+# Разрешить grants на корень mount: path: "" с scope: subtree и корневые discovery_paths.
 vault_configuration_config_safety_allow_mount_root: false
+# Разрешить права destroy_versions/delete_metadata; сама роль секреты не уничтожает.
 vault_configuration_config_safety_allow_destructive_grants: false
+# Защищённые политики; root/default защищены независимо от переопределения списка.
 vault_configuration_config_safety_protected_policies:
-- root
-- default
+  - root
+  - default
+# Защищённые пользователи: inventory ID, имя или UUID; сущность автоматизации защищена всегда.
 vault_configuration_config_safety_protected_entities: []
+# Защищённые группы: inventory ID, имя или UUID.
 vault_configuration_config_safety_protected_groups: []
+# Ожидаемый digest плана из dry; null — не сверять; несовпадение блокирует применение.
+vault_configuration_config_expected_plan_digest: null
 
-# One existing administrative token for every API operation in dry/apply/export.
-# Supply through Ansible Vault or variables; root is only needed to provision it once.
-# No login, token switching or renewal is performed by this role.
+# Один существующий административный токен; задайте через защищённый inventory/Ansible Vault.
 vault_configuration_token: ""
+# Пароли userpass по users[].id; on_create — при создании, always — явно перезаписывать каждый apply.
 vault_configuration_passwords: {}
+# Bind-пароли LDAP/AD по ldap[].id; нужны при создании, смене binddn либо bind_password_policy: always.
 vault_configuration_ldap_passwords: {}
-# Optional lookups belong here/in inventory, never in tasks. No lookup plugin is required:
-# vault_configuration_hashi_vault_path_password: "secret=automation/data/vault-access"
-# vault_configuration_token: "{{ lookup('community.hashi_vault.hashi_vault', vault_configuration_hashi_vault_path_password + ':token') }}"
-# vault_configuration_passwords:
-#   alice: "{{ lookup('community.hashi_vault.hashi_vault', vault_configuration_hashi_vault_path_password + ':alice') }}"
-# TLS uses pre-existing execution-host CA/client certificate files. The role issues no certificates.
-vault_configuration_execution_host: localhost
-vault_configuration_export:
-  scope: managed
-  destination: ./vault-access-manager-export.yml
-  allow_partial: false
+# Пользователи и алиасы; null — не управлять, [] — явно пустое желаемое состояние.
+vault_configuration_users: null
+# Внутренние/внешние группы; null — не управлять, [] — явно пустое состояние.
+vault_configuration_groups: null
+# Назначения политик субъектам; null — сохранить прежние управляемые назначения.
+vault_configuration_grants: null
+# Существующие AppRole/Kubernetes/JWT/OIDC roles; null — не управлять разделом.
+vault_configuration_auth_roles: null
+# Персональная политика: null — не управлять; {enabled: false} — снять свои назначения.
+vault_configuration_personal_access: null
+# LDAP/AD: [{id, auth_mount, config, ...}]; null — сохранить существующие настройки.
+vault_configuration_ldap: null
 
-# Omit vault_configuration_ldap to preserve existing LDAP/AD integrations.
-# vault_configuration_ldap_passwords:
-#   corporate-ad: "{{ vault_ad_bind_password }}"
-# Optional external lookup belongs in variables, never in task files:
-# vault_configuration_ldap_passwords:
-#   corporate-ad: "{{ lookup('community.hashi_vault.hashi_vault', vault_configuration_hashi_vault_path_password + ':ad-bind') }}"
+# Область экспорта: managed — объекты владельца, scoped — выбранные объекты и зависимости.
+vault_configuration_export_scope: managed
+# YAML экспорта всегда на контроллере; относительный путь считается от playbook_dir.
+vault_configuration_export_destination: ./vault-access-manager-export.yml
+# Отдельный JSON-аудит; по умолчанию путь основного файла с суффиксом .audit.json.
+vault_configuration_export_audit_destination: "{{ vault_configuration_export_destination ~ '.audit.json' }}"
+# Допустить неполный экспорт; false — остановиться при неподдерживаемых объектах без записи файлов.
+vault_configuration_export_allow_partial: false
+# Фильтр KV mounts при экспорте; [] — использовать config_mounts.
+vault_configuration_export_mounts: []
+# Фильтр auth mounts при экспорте; [] — все обнаруженные auth mounts.
+vault_configuration_export_auth_mounts: []
+# Выбор/фильтр entities по имени или UUID; в scoped [] не выбирает их явно.
+vault_configuration_export_entities: []
+# Выбор/фильтр групп по имени или UUID; зависимости выбранных объектов добавляются автоматически.
+vault_configuration_export_groups: []
+# Выбор/фильтр политик по имени; [] в scoped не выбирает политики явно.
+vault_configuration_export_policies: []
+# Выбор/фильтр auth roles как auth_mount/name; [] в scoped не выбирает роли явно.
+vault_configuration_export_auth_roles: []
+# Выбор userpass accounts как auth_mount/login для scoped; [] — не выбирать явно.
+vault_configuration_export_users: []
+# Выбор LDAP/AD-конфигураций по auth mount для scoped; [] — не выбирать явно.
+vault_configuration_export_ldap: []
+
+# Источник матрицы: cluster — реальные назначения Vault, inventory — объявления без API и паролей.
+vault_configuration_matrix_source: cluster
+# CSV матрицы на контроллере; путь относительно playbook_dir; пояснения в <destination>.notes.txt.
+vault_configuration_matrix_destination: ./vault-access-matrix.csv

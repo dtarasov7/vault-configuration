@@ -1,50 +1,53 @@
 {
   "schema_version": 1,
   "tested_on": "2026-10-24",
-  "profiles": {
-    "community-validated": {
-      "server_versions": [
-        "2.0.0",
-        "2.0.4"
-      ],
-      "edition": "community",
-      "kv_versions": [
-        2
-      ],
-      "auth_plugins": {
-        "userpass": "v2.0.0+builtin.vault",
-        "approle": "v2.0.0+builtin.vault",
-        "jwt": "v2.0.0+builtin.vault",
-        "oidc": "v2.0.0+builtin.vault",
-        "kubernetes": "v2.0.0+builtin.vault",
-        "ldap": "built-in, matched to the exact tested server version"
-      },
-      "python": [
-        "3.8.20"
-      ],
-      "ansible_core": [
-        "2.13.13"
-      ],
-      "molecule": "4.0.4",
-      "molecule_plugins": "23.0.0",
-      "community_docker": "2.7.3",
-      "ansible_posix": "1.4.0",
-      "docker_engine": "29.1.3",
-      "images": {
-        "2.0.0": "hashicorp/vault:2.0.0@sha256:e40c741ed95bb271425e3e6ca6c222d620cf8682f6f7a1b1e7c9d49d0aba484b",
-        "2.0.4": "hashicorp/vault:2.0.4@sha256:5be49781ecf78bfe775c5309c6a4d9f4e9e040b6c885c99eb2b12fb69855e1a2"
-      },
-      "auth_plugin_versions": [
-        "v2.0.0+builtin.vault",
-        "v2.0.4+builtin.vault"
-      ],
-      "redos_package": {
-        "name": "vault-2.0.4-1.el7.x86_64.rpm",
-        "url": "https://repo1.red-soft.ru/redos/7.3/x86_64/updates/vault-2.0.4-1.el7.x86_64.rpm",
-        "sha256": "31e7e0458802d176e746a281edb987b3d4b624774ed1ae9a0f54cc9450d1e35b",
-        "os": "RED OS 7.3",
-        "signature": "verified against installed RED OS RPM key"
-      }
+  "supported_server_major": 2,
+  "untested_server_versions": "warn_outside_2.0.x",
+  "tested": {
+    "server_versions": [
+      "2.0.0",
+      "2.0.4"
+    ],
+    "edition": "community",
+    "kv_versions": [
+      2
+    ],
+    "auth_plugins": {
+      "userpass": "v2.0.0+builtin.vault",
+      "approle": "v2.0.0+builtin.vault",
+      "jwt": "v2.0.0+builtin.vault",
+      "oidc": "v2.0.0+builtin.vault",
+      "kubernetes": "v2.0.0+builtin.vault",
+      "ldap": "built-in, matched to the exact tested server version"
+    },
+    "python": [
+      "3.8.20"
+    ],
+    "ansible_core": [
+      "2.13.13"
+    ],
+    "molecule": "4.0.4",
+    "molecule_plugins": "23.0.0",
+    "community_docker": "2.7.3",
+    "ansible_posix": "1.4.0",
+    "docker_engine": "29.1.3",
+    "images": {
+      "2.0.0": "hashicorp/vault:2.0.0@sha256:e40c741ed95bb271425e3e6ca6c222d620cf8682f6f7a1b1e7c9d49d0aba484b",
+      "2.0.4": "hashicorp/vault:2.0.4@sha256:5be49781ecf78bfe775c5309c6a4d9f4e9e040b6c885c99eb2b12fb69855e1a2"
+    },
+    "auth_plugin_versions": [
+      "v2.0.0+builtin.vault",
+      "v2.0.4+builtin.vault"
+    ],
+    "redos_package": {
+      "name": "vault-2.0.4-1.el7.x86_64.rpm",
+      "url": "https://repo1.red-soft.ru/redos/7.3/x86_64/updates/vault-2.0.4-1.el7.x86_64.rpm",
+      "sha256": "31e7e0458802d176e746a281edb987b3d4b624774ed1ae9a0f54cc9450d1e35b",
+      "os": "RED OS 7.3",
+      "signature": "verified against installed RED OS RPM key"
     }
-  }
+  },
+  "validated_server_series": "2.0.x",
+  "execution_model": "stateless_controller_or_target",
+  "artifact_host": "ansible_controller"
 }

@@ -1,0 +1,6 @@
+---
+- name: Report KV v2 access assignments
+  hosts: vault
+  gather_facts: false
+  roles:
+    - vault-configuration

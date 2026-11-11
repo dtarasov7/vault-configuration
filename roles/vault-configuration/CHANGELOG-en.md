@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.2.0 — 2026-11-11
+
+- Added read-only matrix mode: cluster/inventory sources, fixed 11-character LRWPMUDVNXZ cells, dot placeholders, group/LDAP/personal-policy support and controller CSV/notes.
+- Implemented stateless metadata/prefix ownership without registry, prune/recovery or password revisions. Internal group membership is authoritative; password policies are on_create/always.
+- Target DNS comes from inventory_hostname; api_execution selects controller/target with separate scheme/port/use_loopback. Validate one selected target after --limit.
+- Dry/export/audit and optional apply reports are published only on the controller relative to playbook_dir, respecting check mode and credential redaction.
+
+- Listed every input variable in defaults/main.yml with Russian comments; optional settings and unmanaged sections default to null, preserving the distinction from empty lists.
+- Flattened export settings into vault_configuration_export_*; the previous dictionary is rejected. Updated JSON Schema, examples and documentation.
+- Treat the entire 2.0.x series as validated; other 2.x versions continue with an informational warning. Actually tested releases remain listed separately in compatibility.json.
+- Vault 1.x and other major versions remain unsupported; API and built-in auth plugin checks remain enabled.
+- Removed compatibility_profile and config_schema_version inventory settings from the role, examples and schema.
+
 ## 1.1.0 — 2026-11-10
 
 - Changed the AD example auth path and aliases from `ad` to `ldap`, using `ldap://...:3268`. Explicit `allow_insecure_ldap: true` is supported in any environment, including production; removed test-only wording. Existing mounts are not moved or deleted.

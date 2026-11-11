@@ -9,23 +9,27 @@ from ansible.module_utils.vault_configuration.runner import run
 DOCUMENTATION = r'''
 ---
 module: vault_configuration
-short_description: Plan, apply or export Vault Community identity and KV v2 ACL configuration
+short_description: Plan, apply, export or report a matrix of Vault identity and KV v2 ACL configuration
 version_added: '1.0.0'
 description:
   - Uses one existing administrative token for every API operation; never reads or writes user KV data.
-  - Uses a durable execution-host registry for ownership and recovery.
-  - Saves dry reports as YAML when config.report_destination is supplied by the role.
+  - Uses live metadata and policy prefixes; never creates a local registry.
+  - Returns reports/export payloads for controller-side artifact publishing.
 requirements:
-  - PyYAML on the execution host for YAML exports and dry reports.
+  - Python standard library on the API execution host; PyYAML on the Ansible controller.
 options:
   config:
-    description: Strict schema version 1 connection, management and safety settings.
+    description: Validated connection, management and safety settings.
     type: dict
     required: true
   token:
     description: Single existing administrative token for discovery, mounts, LDAP, identities and ACLs; never logged.
     type: str
-    required: true
+    default: ''
+  matrix:
+    description: Read-only matrix source, cluster or inventory.
+    type: dict
+    default: {}
   passwords:
     description: External userpass passwords indexed by inventory user ID.
     type: dict
@@ -35,7 +39,7 @@ options:
     type: list
     elements: dict
   ldap:
-    description: LDAP/Active Directory integrations and bind password revisions.
+    description: LDAP/Active Directory integrations and bind password policies.
     type: list
     elements: dict
   ldap_passwords:
@@ -70,11 +74,10 @@ EXAMPLES = r'''
     config:
       mode: "{{ vault_configuration_config_mode }}"
       connection:
-        address: "{{ vault_configuration_config_connection_address }}"
+        address: "https://vault.example.org:8200"
       management:
         owner: "{{ vault_configuration_config_management_owner }}"
         policy_prefix: "{{ vault_configuration_config_management_policy_prefix }}"
-        state_file: "{{ vault_configuration_config_management_state_file }}"
     token: "{{ vault_configuration_token }}"
     users: "{{ vault_configuration_users | default(omit) }}"
     grants: "{{ vault_configuration_grants | default(omit) }}"
@@ -82,7 +85,7 @@ EXAMPLES = r'''
 '''
 RETURN = r'''
 report:
-  description: Safe structured plan, digest, three summaries or export audit summary.
+  description: Safe plan, export summary or matrix summary with controller artifact payloads.
   type: dict
   returned: always
 '''
@@ -100,7 +103,8 @@ def main():
     """
     specification = {
         'config': {'type': 'dict', 'required': True},
-        'token': {'type': 'str', 'required': True, 'no_log': True},
+        'token': {'type': 'str', 'default': '', 'no_log': True},
+        'matrix': {'type': 'dict', 'default': {}},
         'passwords': {'type': 'dict', 'default': {}, 'no_log': True},
         'users': {'type': 'list', 'elements': 'dict'},
         'ldap': {'type': 'list', 'elements': 'dict'},
@@ -118,7 +122,7 @@ def main():
     sections = {key: module.params[key] for key in ('users', 'groups', 'grants', 'auth_roles', 'personal_access', 'ldap')}
     try:
         result = run(module.params['config'], sections, module.params['token'], module.params['passwords'],
-                     module.params['export'], module.check_mode, module._diff, ldap_passwords=module.params['ldap_passwords'])
+                     module.params['export'], module.check_mode, module._diff, ldap_passwords=module.params['ldap_passwords'], matrix=module.params['matrix'])
     except PartialApply as error:
         module.fail_json(msg=str(error), changed=bool(error.confirmed) or bool(error.uncertain),
                          report={'changed': bool(error.confirmed) or bool(error.uncertain), 'error': str(error), 'confirmed': error.confirmed, 'uncertain': error.uncertain})

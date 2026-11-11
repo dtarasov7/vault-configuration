@@ -44,7 +44,7 @@ def validate_ldap(items):
     typed(items, list, 'ldap')
     ids, mounts = set(), set()
     for item in items:
-        fields(item, ['id', 'auth_mount', 'config', 'bind_password_revision', 'allow_insecure_ldap'],
+        fields(item, ['id', 'auth_mount', 'config', 'bind_password_policy', 'allow_insecure_ldap'],
                ['id', 'auth_mount', 'config'], 'ldap')
         name(item['id'], 'ldap.id')
         path(item['auth_mount'])
@@ -79,11 +79,8 @@ def validate_ldap(items):
             strings(config['token_bound_cidrs'], 'LDAP token_bound_cidrs')
         if 'dereference_aliases' in config:
             check(config['dereference_aliases'] in {'never', 'finding', 'searching', 'always'}, 'Invalid LDAP alias dereferencing')
-        if config.get('binddn'):
-            check(isinstance(item.get('bind_password_revision'), str) and item['bind_password_revision'],
-                  'LDAP binddn needs bind_password_revision and an external bind password')
-        elif 'bind_password_revision' in item:
-            check(False, 'bind_password_revision requires binddn')
+        policy = item.setdefault('bind_password_policy', 'on_create')
+        check(policy in {'on_create', 'always'}, 'LDAP bind_password_policy must be on_create or always')
 
 
 def initial_ldap_config(data):
@@ -109,10 +106,7 @@ def ensure_auth_mount(planner, mount, auth_type, section):
     """
     details = planner.view['auth'].get(mount + '/')
     check(not details or details['type'] == auth_type, 'Auth mount already has a different type: ' + mount)
-    owned_mount = planner.state['resources'].get('auth_mount:' + mount)
     if details:
-        if owned_mount:
-            check(owned_mount.get('uuid') == details['accessor'], 'Auth accessor changed; migration required')
         version = details.get('running_plugin_version', '')
         check(not version or version.startswith('v' + planner.view['version'] + '+builtin'),
               'Unsupported external auth plugin version')
@@ -161,13 +155,6 @@ def plan_infrastructure(planner, passwords):
         api = 'auth/' + mount + '/config'
         data = planner.view['objects'].get(api)
         entry = {'path': api, 'data': data} if data is not None else None
-        owned_mount = planner.state['resources'].get('auth_mount:' + mount)
-        if entry and owned_mount and owned_mount.get('uuid') == (details or {}).get('accessor') and initial_ldap_config(data):
-            entry['initial_configuration'] = True
-        previous = planner.state['resources'].get('ldap_config:' + item['id'], {})
-        check(not previous or previous['path'] == api, 'LDAP auth path migration requires explicit recovery')
-        check(not previous.get('accessor') or previous['accessor'] == (details or {}).get('accessor'),
-              'LDAP config accessor changed; migration required')
         payload = dict(data or {})
         payload.update(item['config'])
         # LDAP defaults are pinned for new integrations; existing settings are preserved.
@@ -177,12 +164,12 @@ def plan_infrastructure(planner, passwords):
                                  ('tls_max_version', 'tls13'), ('username_as_alias', True),
                                  ('case_sensitive_names', False)]:
                 payload.setdefault(key, default)
-        revision = item.get('bind_password_revision', previous.get('password_revision'))
-        rotate = bool(item['config'].get('binddn')) and (data is None or previous.get('password_revision') != revision or data.get('binddn') != item['config']['binddn'])
+        rotate = bool(item['config'].get('binddn')) and (
+            data is None or initial_ldap_config(data) or data.get('binddn') != item['config']['binddn']
+            or item['bind_password_policy'] == 'always')
         password = passwords.get(item['id']) if rotate else None
         check(not rotate or isinstance(password, str) and password, 'Required LDAP bind password is missing')
-        model = planner.add_model('ldap_config', item['id'], entry, payload, 'ldap', phase=2,
-                                  revision=revision, password=password)
+        model = planner.add_model('ldap_config', item['id'], entry, payload, 'ldap', phase=2, password=password)
         model.update(path=api, auth_mount=mount, secret_field='bindpass',
                      accessor=planner.view['auth'][mount + '/']['accessor'])
         model['compare_subset'] = True

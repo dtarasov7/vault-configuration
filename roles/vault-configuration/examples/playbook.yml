@@ -1,7 +1,6 @@
 ---
-- name: Configure one Vault from one execution host
-  hosts: localhost
-  connection: local
+- name: Configure one selected Vault target
+  hosts: vault
   gather_facts: false
   vars_files:
     - inventory.yml

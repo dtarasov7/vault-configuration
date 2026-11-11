@@ -9,7 +9,7 @@ vault_configuration_ldap_passwords:
 vault_configuration_ldap:
   - id: corporate-ad
     auth_mount: ldap
-    bind_password_revision: initial-1
+    bind_password_policy: on_create
     # Plain LDAP is an explicit inventory choice, including production environments.
     # RU: Обычный LDAP явно выбирается в инвентаре, в том числе для production.
     allow_insecure_ldap: true

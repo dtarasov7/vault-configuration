@@ -1,9 +1,6 @@
 ---
-vault_configuration_config_schema_version: 1
 vault_configuration_config_mode: dry
 vault_configuration_config_report_destination: "{{ (inventory_dir ~ '/vault-dry-result.yml') if vault_configuration_config_mode == 'dry' else omit }}"
-vault_configuration_config_compatibility_profile: community-validated
-vault_configuration_config_connection_address: https://vault.example.org:8200
 vault_configuration_config_connection_validate_tls: true
 vault_configuration_config_connection_ca_file: /etc/ansible/certs/vault-ca.pem
 vault_configuration_config_connection_timeout_seconds: 30
@@ -15,9 +12,6 @@ vault_configuration_config_mounts:
 - users
 vault_configuration_config_management_owner: platform-team
 vault_configuration_config_management_policy_prefix: vam-platform-
-vault_configuration_config_management_state_file: /var/lib/ansible/vault-access/platform-state.json
-vault_configuration_config_management_prune: false
-vault_configuration_config_management_prune_identities: false
 vault_configuration_config_management_adoption: []
 vault_configuration_token: "{{ vault_admin_automation_token }}"
 vault_configuration_passwords:
@@ -28,8 +22,7 @@ vault_configuration_users:
     source: userpass
     auth_mount: userpass
     login: alice
-    password_revision: initial-1
-    password_policy: on_revision
+    password_policy: on_create
     token_parameters:
       token_ttl: 900
       token_max_ttl: 3600

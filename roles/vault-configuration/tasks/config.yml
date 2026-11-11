@@ -1,44 +1,35 @@
 ---
-- name: config.yml - Select export or reconciliation
+- name: config.yml - Select export, matrix or reconciliation
   block:
   - name: config.yml - Read actual configuration for export
     ansible.builtin.include_tasks: export.yml
     when: vault_configuration_config_mode == 'export'
+  - name: config.yml - Build read-only access matrix
+    ansible.builtin.include_tasks: matrix.yml
+    when: vault_configuration_config_mode == 'matrix'
   - name: config.yml - Plan or apply desired configuration
     ansible.builtin.include_tasks: reconcile.yml
-    when: vault_configuration_config_mode != 'export'
+    when: vault_configuration_config_mode not in ['export', 'matrix']
   module_defaults:
     vault_configuration:
       config: |-
         {{ {
-          'schema_version': vault_configuration_config_schema_version,
           'mode': vault_configuration_config_mode,
-          'compatibility_profile': vault_configuration_config_compatibility_profile,
           'connection': {
-            'address': vault_configuration_config_connection_address,
+            'address': vault_configuration_context.context.address,
             'validate_tls': vault_configuration_config_connection_validate_tls,
-            'ca_file': vault_configuration_config_connection_ca_file | default(omit),
-            'client_cert': vault_configuration_config_connection_client_cert | default(omit),
-            'client_key': vault_configuration_config_connection_client_key | default(omit),
+            'ca_file': vault_configuration_config_connection_ca_file if vault_configuration_config_connection_ca_file is not none else omit,
+            'client_cert': vault_configuration_config_connection_client_cert if vault_configuration_config_connection_client_cert is not none else omit,
+            'client_key': vault_configuration_config_connection_client_key if vault_configuration_config_connection_client_key is not none else omit,
             'timeout_seconds': vault_configuration_config_connection_timeout_seconds,
-            'allow_insecure_http': vault_configuration_config_connection_allow_insecure_http,
+            'allow_insecure_http': vault_configuration_api_scheme == 'http',
           },
           'management': {
             'owner': vault_configuration_config_management_owner,
             'policy_prefix': vault_configuration_config_management_policy_prefix,
-            'state_file': vault_configuration_config_management_state_file,
-            'prune': vault_configuration_config_management_prune,
-            'prune_identities': vault_configuration_config_management_prune_identities,
             'adoption': vault_configuration_config_management_adoption,
-            'deletion_approvals': vault_configuration_config_management_deletion_approvals,
-            'recovery': {
-              'digest': vault_configuration_config_management_recovery_digest | default(omit),
-              'outcome': vault_configuration_config_management_recovery_outcome | default(omit),
-            },
           },
           'safety': {
-            'max_deletions': vault_configuration_config_safety_max_deletions,
-            'allow_empty_desired': vault_configuration_config_safety_allow_empty_desired,
             'allow_mount_root': vault_configuration_config_safety_allow_mount_root,
             'allow_destructive_grants': vault_configuration_config_safety_allow_destructive_grants,
             'protected_policies': vault_configuration_config_safety_protected_policies,
@@ -46,14 +37,18 @@
             'protected_groups': vault_configuration_config_safety_protected_groups,
           },
           'mounts': vault_configuration_config_mounts,
-          'report_destination': vault_configuration_config_report_destination | default(omit),
-          'expected_plan_digest': vault_configuration_config_expected_plan_digest | default(omit),
+          'expected_plan_digest': vault_configuration_config_expected_plan_digest if vault_configuration_config_expected_plan_digest is not none else omit,
         } }}
-      token: '{{ vault_configuration_token }}'
+      # lookup is evaluated only in the selected branch; a bare Jinja variable may resolve eagerly.
+      # RU: lookup вычисляется только в выбранной ветви; обычная Jinja-переменная может вычислиться заранее.
+      token: "{{ '' if vault_configuration_config_mode == 'matrix' and vault_configuration_matrix_source == 'inventory' else lookup('vars', 'vault_configuration_token') }}"
+
 - name: config.yml - Publish the sanitized result
   vault_configuration_report:
+    context: '{{ vault_configuration_context.context }}'
     report: '{{ vault_configuration_result.report | default({''error'': ''Module failed before returning a public report''}) }}'
-- name: config.yml - Report failure after publishing recovery information
+
+- name: config.yml - Report failure after publishing operation outcomes
   ansible.builtin.fail:
     msg: '{{ vault_configuration_result.report.error | default(''Vault configuration failed'') }}'
   when: vault_configuration_result is failed

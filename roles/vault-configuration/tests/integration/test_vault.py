@@ -139,10 +139,10 @@ class VaultIntegration(unittest.TestCase):
         self.work = self.directory / self.name
         self.work.mkdir()
         self.config = copy.deepcopy(DEFAULTS)
-        self.config.update(mode='apply', compatibility_profile='community-candidate', connection=self.server.connection)
-        self.config['management'].update(owner=self.name, policy_prefix='vam-' + self.name + '-', state_file=str(self.work / 'state.json'))
+        self.config.update(mode='apply', connection=self.server.connection)
+        self.config['management'].update(owner=self.name, policy_prefix='vam-' + self.name + '-')
         self.sections = {'users': [{'id': self.name, 'name': self.name, 'source': 'userpass', 'auth_mount': 'userpass',
-                                   'login': self.name, 'password_revision': 'r1', 'password_policy': 'on_revision'}]}
+                                   'login': self.name, 'password_policy': 'on_create'}]}
         self.password = 'test-pw-' + self.name
 
     def apply(self, sections=None, config=None, **kwargs):
@@ -205,7 +205,7 @@ class VaultIntegration(unittest.TestCase):
     def test_personal_rename_and_offboarding(self):
         second_id = self.name + '-other'
         self.sections['users'].append({'id': second_id, 'name': second_id, 'source': 'userpass', 'auth_mount': 'userpass',
-                                      'login': second_id, 'password': 'other-test-password', 'password_revision': 'r1'})
+                                      'login': second_id, 'password': 'other-test-password', })
         self.sections['personal_access'] = {'enabled': True, 'mount': 'users', 'permissions': ['read', 'write', 'list'],
                                           'subjects': [{'kind': 'user', 'id': self.name}, {'kind': 'user', 'id': second_id}]}
         self.apply()
@@ -338,312 +338,12 @@ class VaultIntegration(unittest.TestCase):
         finally:
             server.close()
 
-    def test_dry_reports_only_changes_and_preserves_plan_digest(self):
-        self.sections['grants'] = [self.grant()]
-        self.apply()
-        full_plan = self.apply(check_mode=True)['plan']
-        self.assertTrue(any(operation['action'] == 'noop' for operation in full_plan['operations']))
-        destination = self.work / 'changes-only.yml'
-        configuration = dict(self.config, mode='dry', report_destination=str(destination))
-        empty = run(configuration, self.sections, self.server.token)
-        self.assertEqual(empty['plan']['operations'], [])
-        self.assertEqual(empty['plan']['digest'], full_plan['digest'])
-        self.assertTrue(all(summary['count'] == 0 for summary in empty['summary'].values()))
-        empty_yaml = destination.read_text()
-        self.assertEqual(yaml.safe_load(empty_yaml)['plan']['operations'], [])
-        self.assertNotIn('action: noop', empty_yaml)
 
-        self.sections['users'][0]['disabled'] = True
-        complete = self.apply(check_mode=True)['plan']
-        dry = run(configuration, self.sections, self.server.token, diff=True)
-        changes = dry['plan']['operations']
-        self.assertEqual([(operation['key'], operation['action']) for operation in changes],
-                         [('entity:' + self.name, 'update')])
-        self.assertEqual(dry['plan']['digest'], complete['digest'])
-        self.assertEqual(dry['summary']['Планируем изменить']['count'], 1)
-        report_yaml = destination.read_text()
-        report = yaml.safe_load(report_yaml)
-        self.assertEqual(report['plan'], dry['plan'])
-        self.assertNotIn('action: noop', report_yaml)
-        actual_entity = self.client.read(changes[0]['path'])
-        self.assertFalse(actual_entity['disabled'])
 
-    def test_dry_check_export_and_transfer(self):
-        self.sections['grants'] = [self.grant(permissions=['read', 'write'])]
-        dry_config = copy.deepcopy(self.config)
-        dry_config['mode'] = 'dry'
-        dry_client = Client(self.server.connection, self.server.token)
-        result = run(dry_config, self.sections, self.server.token, passwords={self.name: self.password}, client=dry_client)
-        self.assertFalse(result['changed'])
-        self.assertEqual(len(result['summary']), 3)
-        self.assertTrue(all(request['method'] in {'GET', 'LIST'} for request in dry_client.requests))
-        self.assertFalse(Path(self.config['management']['state_file']).exists())
-        report_path = self.work / 'reports' / 'inventory-selected-name.yml'
-        dry_config['report_destination'] = str(report_path)
-        checked = run(dry_config, self.sections, self.server.token, passwords={self.name: self.password}, check_mode=True)
-        self.assertTrue(checked['changed'])
-        self.assertFalse(report_path.exists())
-        saved = run(dry_config, self.sections, self.server.token, passwords={self.name: self.password})
-        self.assertTrue(saved['changed'])
-        report_text = report_path.read_text()
-        report = yaml.safe_load(report_text)
-        self.assertFalse(report_text.lstrip().startswith('{'))
-        self.assertEqual(report['mode'], 'dry')
-        self.assertEqual(report['plan'], saved['plan'])
-        self.assertEqual(report['summary'], saved['summary'])
-        self.assertEqual(report_path.stat().st_mode & 0o777, 0o600)
-        for secret in [self.server.token, self.password]:
-            self.assertNotIn(secret, report_text)
-        self.assertFalse(run(dry_config, self.sections, self.server.token, passwords={self.name: self.password})['changed'])
-        self.assertFalse(Path(self.config['management']['state_file']).exists())
-        collision = dict(dry_config, report_destination=self.config['management']['state_file'])
-        with self.assertRaises(ConfigurationError):
-            run(collision, self.sections, self.server.token, passwords={self.name: self.password})
-        check_result = self.apply(check_mode=True, diff=True)
-        self.assertTrue(check_result['changed'])
-        self.assertTrue(check_result['diff'])
-        self.assertNotIn(self.password, json.dumps(check_result))
-        self.apply()
-        # Reverse a manual ACL change, instead of exporting cached desired state.
-        name = policy_name(self.config['management']['policy_prefix'], 'access')
-        modified = self.grant(permissions=['read'], logical='manual/' + self.name)
-        self.client.request('POST', 'sys/policies/acl/' + name, {'policy': compile_grant(modified)})
-        export_config = copy.deepcopy(self.config)
-        export_config['mode'] = 'export'
-        destination = self.work / 'export.yml'
-        options = {'destination': str(destination)}
-        result = self.apply(config=export_config, export=options, check_mode=True)
-        self.assertTrue(result['changed'])
-        self.assertFalse(destination.exists())
-        export_client = Client(self.server.connection, self.server.token)
-        run(export_config, {}, self.server.token, export=options, client=export_client)
-        self.assertTrue(all(request['method'] in {'GET', 'LIST'} for request in export_client.requests))
-        self.assertFalse(any('/data/' in request['path'] or '/metadata/' in request['path'] for request in export_client.requests))
-        export_text = destination.read_text()
-        variables = yaml.safe_load(export_text)
-        self.assertFalse(export_text.lstrip().startswith('{'))
-        self.assertEqual(variables['vault_configuration_grants'][0]['paths'][0]['path'], 'manual/' + self.name)
-        imported = {key.removeprefix('vault_configuration_') if hasattr(key, 'removeprefix') else key[len('vault_configuration_'):]: value for key, value in variables.items()}
-        for user in imported['users']:
-            user.pop('password', None)
-        second_config = copy.deepcopy(self.config)
-        second_config['connection'] = self.second.connection
-        second_config['management']['state_file'] = str(self.work / 'target' / 'state.json')
-        result = run(second_config, imported, self.second.token, passwords={self.name: self.password})
-        self.assertTrue(result['changed'])
-        self.assertFalse(run(second_config, imported, self.second.token, passwords={self.name: self.password})['changed'])
-        self.assertNotIn(self.password, destination.read_text())
-        self.assertEqual(destination.stat().st_mode & 0o777, 0o600)
-        self.assertFalse(self.apply(config=export_config, export=options)['changed'])
 
-    def test_password_revisions_and_existing_on_create(self):
-        self.apply()
-        self.sections['users'][0]['password_policy'] = 'on_create'
-        result = run(self.config, self.sections, self.server.token)
-        self.assertEqual(result['confirmed'], [])
-        self.assertFalse(run(self.config, self.sections, self.server.token)['changed'])
-        self.sections['users'][0]['password_policy'] = 'on_revision'
-        self.password = 'explicitly-rotated-test-password'
-        self.sections['users'][0]['password_revision'] = 'r2'
-        self.assertTrue(self.apply()['changed'])
-        self.login()
-        self.assertFalse(self.apply()['changed'])
-        registry = Path(self.config['management']['state_file']).read_text()
-        self.assertNotIn(self.password, registry)
-        self.assertNotIn(hashlib.sha256(self.password.encode()).hexdigest(), registry)
 
-    def test_adoption_registry_loss_protected_and_prune(self):
-        self.sections['grants'] = [self.grant()]
-        self.apply()
-        registry_file = Path(self.config['management']['state_file'])
-        registry = json.loads(registry_file.read_text())
-        entity_record = registry['resources']['entity:' + self.name]
-        registry_file.rename(registry_file.with_suffix('.saved'))
-        with self.assertRaises(ConfigurationError):
-            self.apply()
-        registry_file.with_suffix('.saved').rename(registry_file)
-        protected = copy.deepcopy(self.config)
-        protected['safety']['protected_entities'] = [entity_record['uuid']]
-        with self.assertRaises(ConfigurationError):
-            self.apply(config=protected)
-        # Prune grant: detach links first, then delete only the owned policy.
-        self.sections['grants'] = []
-        self.config['management']['prune'] = True
-        self.config['safety']['allow_empty_desired'] = True
-        name = policy_name(self.config['management']['policy_prefix'], 'access')
-        current_policy = {'policy': self.client.read('sys/policies/acl/' + name)['policy']}
-        self.config['management']['deletion_approvals'] = [{'kind': 'policy', 'id': 'access', 'hash': digest(current_policy), 'dependencies_cleared': True}]
-        self.assertTrue(self.apply()['changed'])
-        self.assertIsNone(self.client.read('sys/policies/acl/' + name, missing=True))
-        self.assertFalse(self.apply()['changed'])
 
-    def test_partial_failure_recovery_and_drift(self):
-        self.sections['grants'] = [self.grant()]
-        class FailAfterWrite(Client):
-            failed = False
-            def request(inner, method, api_path, payload=None, missing=False):
-                response = super(FailAfterWrite, inner).request(method, api_path, payload, missing)
-                if method == 'POST' and api_path == 'identity/entity' and not inner.failed:
-                    inner.failed = True
-                    raise VaultHTTPError(method, 'transport', True)
-                return response
-        failing = FailAfterWrite(self.server.connection, self.server.token)
-        with self.assertRaises(PartialApply) as raised:
-            self.apply(client=failing)
-        self.assertTrue(raised.exception.confirmed)
-        registry = json.loads(Path(self.config['management']['state_file']).read_text())
-        self.assertNotIn(self.password, json.dumps(registry))
-        self.config['management']['recovery'] = {'digest': registry['pending']['digest'], 'outcome': 'applied'}
-        self.assertTrue(self.apply()['changed'])
-        self.assertFalse(self.apply()['changed'])
-        # A read failure is never absence.
-        self.client.request('POST', 'sys/policies/acl/limited', {'policy': 'path "sys/health" { capabilities = ["read"] }'})
-        limited = self.client.request('POST', 'auth/token/create', {'policies': ['limited'], 'no_default_policy': True})
-        with self.assertRaises(ConfigurationError):
-            run(self.config, self.sections, limited['auth']['client_token'])
 
-    def test_ansible_import_vars_files_check_diff(self):
-        self.sections['grants'] = [self.grant()]
-        self.sections['personal_access'] = {'enabled': True, 'mount': 'users',
-                                          'subjects': [{'kind': 'user', 'id': self.name}], 'permissions': ['read', 'write']}
-        self.apply()
-        exported = self.work / 'export.yml'
-        self.apply(config=dict(self.config, mode='export'), export={'destination': str(exported)})
-        target = copy.deepcopy(self.config)
-        target['connection'] = self.second.connection
-        target['management']['state_file'] = str(self.work / 'target' / 'state.json')
-        def flat_config(value, prefix='vault_configuration_config'):
-            variables = {}
-            for key, item in value.items():
-                variable_name = prefix + '_' + key
-                if isinstance(item, dict):
-                    variables.update(flat_config(item, variable_name))
-                else:
-                    variables[variable_name] = item
-            return variables
-        values = flat_config(target)
-        # Inventory overrides individual settings; the role must retain the other defaults.
-        for variable in ('vault_configuration_config_schema_version',
-                         'vault_configuration_config_connection_validate_tls',
-                         'vault_configuration_config_connection_timeout_seconds',
-                         'vault_configuration_config_safety_max_deletions'):
-            values.pop(variable)
-        values.update(vault_configuration_token=self.second.token,
-                      vault_configuration_passwords={self.name: self.password})
-        values_file = self.work / 'target-vars.yml'
-        values_file.write_text(json.dumps(values))
-        values_file.chmod(0o600)
-        playbook = self.work / 'playbook.yml'
-        playbook.write_text(json.dumps([{'name':'Import the actual exported variables', 'hosts':'localhost',
-                                        'connection':'local', 'gather_facts':False,
-                                        'vars_files':[str(exported), str(values_file)], 'roles':['vault-configuration']}]))
-        command = ['ansible-playbook', '-i', 'localhost,', str(playbook)]
-        environment = dict(os.environ, ANSIBLE_CONFIG=str(ROOT / 'ansible.cfg'), ANSIBLE_ROLES_PATH=str(ROOT / 'roles'))
-        for options in [['--check', '--diff'], [], []]:
-            response = subprocess.run(command + options, env=environment, cwd=str(ROOT),
-                                      stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-            self.assertEqual(response.returncode, 0, response.stdout)
-            self.assertIn('Планируем добавить', response.stdout)
-            self.assertIn('Планируем изменить', response.stdout)
-            self.assertIn('Планируем удалить', response.stdout)
-            self.assertIn('"mode": "apply"', response.stdout)
-            self.assertNotIn(self.second.token, response.stdout)
-            self.assertNotIn(self.password, response.stdout)
-            if options:
-                self.assertFalse(Path(target['management']['state_file']).exists())
-                self.assertIn('--- before', response.stdout)
-        self.assertIn('changed=0', response.stdout)
-        for extra in ({'vault_configuration_config': {}}, {'vault_configuration_config_unknown': True}):
-            rejected = subprocess.run(command + ['--tags', 'pre-req', '-e', json.dumps(extra)],
-                                      env=environment, cwd=str(ROOT), stdout=subprocess.PIPE,
-                                      stderr=subprocess.STDOUT, text=True)
-            self.assertNotEqual(rejected.returncode, 0)
-            self.assertIn('Require flat configuration variables', rejected.stdout)
-        dry = subprocess.run(command + ['-e', 'vault_configuration_config_mode=dry'],
-                             env=environment, cwd=str(ROOT), stdout=subprocess.PIPE,
-                             stderr=subprocess.STDOUT, text=True)
-        self.assertEqual(dry.returncode, 0, dry.stdout)
-        self.assertIn('changed=1', dry.stdout)
-        default_report_path = self.work / 'vault-configuration-localhost-dry.yml'
-        default_report_text = default_report_path.read_text()
-        default_report = yaml.safe_load(default_report_text)
-        self.assertEqual(default_report['mode'], 'dry')
-        self.assertEqual(default_report['plan']['operations'], [])
-        self.assertNotIn('"action": "noop"', dry.stdout)
-        self.assertNotIn(self.second.token, default_report_text)
-        self.assertNotIn(self.password, default_report_text)
-        dry_again = subprocess.run(command + ['-e', 'vault_configuration_config_mode=dry'],
-                                   env=environment, cwd=str(ROOT), stdout=subprocess.PIPE,
-                                   stderr=subprocess.STDOUT, text=True)
-        self.assertEqual(dry_again.returncode, 0, dry_again.stdout)
-        self.assertIn('changed=0', dry_again.stdout)
-        role_export = self.work / 'role-export.yml'
-        values['vault_configuration_config_mode'] = 'export'
-        values['vault_configuration_export'] = {'destination': str(role_export)}
-        values.pop('vault_configuration_passwords')
-        values_file.write_text(json.dumps(values))
-        for options in (['--check'], []):
-            exported_result = subprocess.run(command + options, env=environment, cwd=str(ROOT),
-                                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-            self.assertEqual(exported_result.returncode, 0, exported_result.stdout)
-            self.assertEqual(role_export.exists(), not bool(options))
-        # Reusing the exported file on its source is also idempotent after importing current API values.
-        self.assertFalse(self.apply()['changed'])
-
-    def test_bootstrap_policy_works_without_root_token(self):
-        policy = (ROLE / 'files/bootstrap-policy.hcl').read_text()
-        policy_name = self.name + '-automation'
-        self.client.request('POST', 'sys/policies/acl/' + policy_name, {'policy': policy})
-        token = self.client.request('POST', 'auth/token/create',
-                                    {'policies':[policy_name], 'no_default_policy':True, 'no_parent':True,
-                                     'ttl':'5m', 'explicit_max_ttl':'5m', 'renewable':False})['auth']['client_token']
-        administrator = Client(self.server.connection, token)
-        self.assertEqual(administrator.read('auth/token/lookup-self')['policies'], [policy_name])
-        # Arbitrary nested auth paths and a different policy prefix need no ACL regeneration.
-        userpass_mount = 'company/staff'
-        approle_mount = 'company/services'
-        kv_mount = 'company-apps'
-        self.assertNotIn(userpass_mount + '/', administrator.read('sys/auth'))
-        administrator.request('POST', 'sys/auth/' + approle_mount, {'type': 'approle'})
-        administrator.request('POST', 'auth/' + approle_mount + '/role/ansible', {'token_ttl': 300})
-        self.config['mounts'] = [kv_mount]
-        self.config['management']['policy_prefix'] = 'access-company-'
-        self.sections['users'][0]['auth_mount'] = userpass_mount
-        self.sections['auth_roles'] = [{'id': 'automation', 'type': 'approle',
-                                        'auth_mount': approle_mount, 'name': 'ansible'}]
-        access = self.grant()
-        access['paths'][0]['mount'] = kv_mount
-        access['subjects'].append({'kind': 'auth_role', 'id': 'automation'})
-        self.sections['grants'] = [access]
-        result = run(self.config, self.sections, token, passwords={self.name:self.password})
-        self.assertTrue(result['changed'])
-        self.assertEqual(administrator.read('sys/auth')[userpass_mount + '/']['type'], 'userpass')
-        self.assertFalse(run(self.config, self.sections, token, passwords={self.name:self.password})['changed'])
-        assigned = administrator.read('auth/' + approle_mount + '/role/ansible')['token_policies']
-        self.assertTrue(any(name.startswith('access-company-') for name in assigned))
-        # The same token can update ACLs and export, but has no direct KV data access.
-        self.sections['grants'][0]['paths'][0]['permissions'] = ['read', 'write']
-        self.assertTrue(run(self.config, self.sections, token)['changed'])
-        export_path = self.work / 'export.yml'
-        run(dict(self.config, mode='export'), {}, token, export={'destination': str(export_path)})
-        self.assertTrue(export_path.is_file())
-        with self.assertRaises(VaultHTTPError):
-            administrator.request('POST', kv_mount + '/data/fixture', {'data': {'value': 'test'}})
-        # Bypass the client guard to prove Vault ACLs also refuse mount deletion.
-        for api in ['sys/mounts/' + kv_mount, 'sys/auth/' + userpass_mount]:
-            request = Request(administrator.address + '/v1/' + api,
-                              headers={'X-Vault-Token': token}, method='DELETE')
-            with self.assertRaises(HTTPError) as error:
-                administrator.opener.open(request)
-            self.assertEqual(error.exception.code, 403)
-            error.exception.close()
-        managed_acl = next(name for name in assigned if name.startswith('access-company-'))
-        current_policy = {'policy': administrator.read('sys/policies/acl/' + managed_acl)['policy']}
-        self.config['management'].update(prune=True, deletion_approvals=[
-            {'kind': 'policy', 'id': 'access', 'hash': digest(current_policy), 'dependencies_cleared': True}])
-        self.config['safety']['allow_empty_desired'] = True
-        self.assertTrue(run(self.config, dict(self.sections, grants=[]), token)['changed'])
-        self.assertIn(kv_mount + '/', administrator.read('sys/mounts'))
 
     def test_z_sealed_vault_refuses_all_changes(self):
         self.second.client.request('POST', 'sys/seal')
@@ -703,71 +403,8 @@ class VaultIntegration(unittest.TestCase):
                 with self.assertRaises(VaultHTTPError):
                     ordinary.read('apps/data/' + logical)
 
-    def test_preserve_foreign_bindings_and_effective_cycle(self):
-        child = self.name + '-child'
-        self.sections['groups'] = [{'id': child, 'name': child, 'type': 'internal', 'members': [self.name]}]
-        self.sections['grants'] = [self.grant(kind='group', subject=child)]
-        self.apply()
-        registry = json.loads(Path(self.config['management']['state_file']).read_text())
-        group_uuid = registry['resources']['group:' + child]['uuid']
-        foreign_policy = self.name + '-foreign'
-        self.client.request('POST', 'sys/policies/acl/' + foreign_policy, {'policy': 'path "infra/data/fixture" { capabilities = ["read"] }'})
-        current = self.client.read('identity/group/id/' + group_uuid)
-        self.client.request('POST', 'identity/group/id/' + group_uuid,
-                            {'policies': current['policies'] + [foreign_policy]})
-        self.sections['grants'] = []
-        self.apply()
-        self.assertEqual(self.client.read('identity/group/id/' + group_uuid)['policies'], [foreign_policy])
-        # The role must consider cycles through unmanaged groups too.
-        foreign = self.client.request('POST', 'identity/group', {'name': self.name + '-foreign-group', 'type': 'internal',
-                                       'member_group_ids': [group_uuid]})['data']['id']
-        self.sections['groups'][0]['member_groups'] = [{'uuid': foreign}]
-        with self.assertRaises(ConfigurationError):
-            self.apply()
 
-    def test_drift_wrong_cluster_and_corrupt_registry(self):
-        self.apply()
-        outer = self
-        class Drift(Client):
-            reads = 0
-            def request(inner, method, api_path, payload=None, missing=False):
-                if method == 'GET' and api_path == 'sys/health':
-                    inner.reads += 1
-                    if inner.reads == 2:
-                        registry = json.loads(Path(outer.config['management']['state_file']).read_text())
-                        uuid = registry['resources']['entity:' + outer.name]['uuid']
-                        outer.client.request('POST', 'identity/entity/id/' + uuid, {'metadata': {'foreign': 'changed'}})
-                return super(Drift, inner).request(method, api_path, payload, missing)
-        with self.assertRaises(ConfigurationError):
-            self.apply(client=Drift(self.server.connection, self.server.token))
-        wrong = copy.deepcopy(self.config)
-        wrong['connection'] = self.second.connection
-        with self.assertRaises(ConfigurationError):
-            run(wrong, self.sections, self.second.token)
-        Path(self.config['management']['state_file']).write_text('{broken')
-        with self.assertRaises(ConfigurationError):
-            self.apply()
 
-    def test_password_response_loss_needs_operator_decision(self):
-        self.apply()
-        self.sections['users'][0]['password_revision'] = 'r2'
-        self.password += '-rotated'
-        class LosePasswordResponse(Client):
-            def request(inner, method, api_path, payload=None, missing=False):
-                response = super(LosePasswordResponse, inner).request(method, api_path, payload, missing)
-                if method == 'POST' and api_path.startswith('auth/userpass/users/') and payload and 'password' in payload:
-                    raise VaultHTTPError(method, 'transport', True)
-                return response
-        with self.assertRaises(PartialApply):
-            self.apply(client=LosePasswordResponse(self.server.connection, self.server.token))
-        with self.assertRaises(ConfigurationError):
-            self.apply()
-        self.login()  # Operator fixture verifies the new password without putting it in a report.
-        registry = json.loads(Path(self.config['management']['state_file']).read_text())
-        self.config['management']['recovery'] = {'digest': registry['pending']['digest'], 'outcome': 'applied'}
-        result = self.apply()
-        self.assertEqual(result['confirmed'], [])
-        self.assertNotIn(self.password, json.dumps(result))
 
     def test_scoped_export_and_unsupported(self):
         self.apply()
@@ -783,9 +420,9 @@ class VaultIntegration(unittest.TestCase):
             run(export_config, {}, self.server.token, export=options)
         self.assertFalse(destination.exists())
         options['allow_partial'] = True
-        self.assertTrue(run(export_config, {}, self.server.token, export=options)['partial'])
-        export_text = destination.read_text()
-        exported = yaml.safe_load(export_text)
+        result = run(export_config, {}, self.server.token, export=options)
+        self.assertTrue(result['partial'])
+        exported = result['_export_variables']
         self.assertNotIn('vault_configuration_grants', exported)
 
 

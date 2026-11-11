@@ -4,7 +4,7 @@ vault_configuration_ldap_passwords:
 vault_configuration_ldap:
   - id: corporate-ldap
     auth_mount: ldap
-    bind_password_revision: initial-1
+    bind_password_policy: on_create
     config:
       url: ldaps://ldap.example.org:636
       certificate: "{{ lookup('file', 'certs/ldap-ca.pem') }}"

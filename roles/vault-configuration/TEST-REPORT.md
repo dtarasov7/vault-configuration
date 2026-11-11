@@ -1,5 +1,27 @@
 # Отчёт о проверках / Verification report
 
+## 2026-11-11 — matrix
+
+- 86 модульных тестов: в том числе 16 новых проверок фиксированных 11 позиций, ACL specificity/deny, вложенных групп, LDAP-шаблонов, неизвестных политик, отдельных login policies, CSV escaping, приватных файлов, отказа без замены файлов и исключения password lookup до шаблонизации.
+- Полный набор: 33 интеграционных теста на изолированном Vault 2.0.4 прошли. Четыре новых matrix-сценария сравнивают ACL с sys/capabilities, читают реальные LDAP mappings и проверяют Ansible online/offline/--check без SSH и вычисления секретов.
+- После расширения проверки повторён реальный OpenLDAP login: права Identity external group и прямого LDAP group mapping попадают в колонку соответствующего LDAP login; другой пользователь этих прав не получает.
+- Четыре matrix-сценария также прошли на Vault 2.0.0. Физический SSH target не использовался; production Vault и AD не затрагивались.
+- JSON Schema валидна, все 44 входные переменные defaults отражены в ней, пример matrix и YAML задач прошли проверку.
+
+## 2026-11-11 — stateless и controller-артефакты
+
+- 70 модульных тестов: ACL-компилятор/validation, metadata ownership и adoption, authoritative policy bindings/группы, password policies, TLS-диагностика, приватные файлы контроллера и unsafe-строки Ansible.
+- 29 интеграционных тестов на Vault 2.0.4: ACL/Identity/auth roles, OpenLDAP, LDAP login templates и переносимый export/import, три Raft voters с failover, реальный RED OS lab playbook init/unseal/configuration и LDAP seeder, TLS/redirect/timeout.
+- Дополнительно 6 новых stateless/Ansible сценариев прошли на Vault 2.0.0: controller-only API без SSH, target/loopback, независимые контроллеры, owned bindings и неопределённая password-write.
+- Проверен повтор с двух независимых controller directories без registry; отсутствие SSH при controller execution; target execution через loopback; один target после --limit и отказ при нескольких hosts; старые registry/prune параметры отклоняются.
+- Dry/export/audit сохраняются только на контроллере с 0600; относительные пути разрешаются от playbook_dir, --check не создаёт файлов. API-модуль не использует PyYAML или локальное состояние.
+- Target execution проверялся через inventory connection local, моделирующий удалённый модуль. Физический удалённый SSH-хост не использовался. Production Vault и корпоративный AD не затрагивались.
+- Нет распределённой блокировки и durable recovery: apply jobs на кластер сериализуются средствами CI/CD; неопределённая password-write требует проверки аутентификации оператором.
+
+Ниже сохранены историческая матрица и результаты прежней модели; упоминания registry/recovery в исторических сценариях не описывают текущий контракт.
+
+## Историческая проверка — 2026-10-24
+
 Дата: 2026-10-24. Проверялась только изолированная инфраструктура. Системный Vault на execution host не обновлялся; production Vault и корпоративный AD не использовались.
 
 ## Проверенная матрица
@@ -19,7 +41,7 @@
 | community.docker / ansible.posix | 2.7.3 / 1.4.0 |
 | Docker Engine | 29.1.3, linux/amd64 |
 
-Оба точных серверных релиза включены в community-validated. Другие версии сервера, Enterprise/namespaces и внешние версии auth plugins не заявлены. Наличие релиза сверено с [каталогом Vault 2.0.4](https://releases.hashicorp.com/vault/2.0.4/). LDAP/AD параметры сверены с [официальным LDAP API](https://developer.hashicorp.com/vault/api-docs/auth/ldap), включая AD nested-group matching rule; затем проверены на реальном Vault/OpenLDAP. Точный RPM получен с `https://repo1.red-soft.ru/redos/7.3/x86_64/updates/vault-2.0.4-1.el7.x86_64.rpm`.
+На 2026-11-11 вся ветка 2.0.x считается проверенной по политике совместимости; остальные версии Vault 2.x разрешены с информационным предупреждением; Vault 1.x не поддерживается. Указанные выше точные релизы остаются проверенной матрицей, а не списком разрешённых версий. Проверка допуска других номеров 2.x выполнена модульными тестами с имитацией API и не означает проверку реального сервера этой версии. Enterprise/namespaces и внешние версии auth plugins не заявлены. Наличие релиза сверено с [каталогом Vault 2.0.4](https://releases.hashicorp.com/vault/2.0.4/). LDAP/AD параметры сверены с [официальным LDAP API](https://developer.hashicorp.com/vault/api-docs/auth/ldap), включая AD nested-group matching rule; затем проверены на реальном Vault/OpenLDAP. Точный RPM получен с `https://repo1.red-soft.ru/redos/7.3/x86_64/updates/vault-2.0.4-1.el7.x86_64.rpm`.
 
 ## Результаты
 

@@ -1,0 +1,26 @@
+---
+- name: matrix.yml - Prepare offline declarations without evaluating secret fields
+  vault_configuration_report:
+    operation: matrix_inventory
+  register: vault_configuration_offline_matrix
+  when: vault_configuration_matrix_source == 'inventory'
+  no_log: true
+
+- name: matrix.yml - Calculate access matrix without changing Vault
+  vault_configuration:
+    matrix:
+      source: '{{ vault_configuration_matrix_source }}'
+    users: '{{ vault_configuration_offline_matrix.sections.users | default(omit) }}'
+    groups: '{{ vault_configuration_offline_matrix.sections.groups | default(omit) }}'
+    grants: '{{ vault_configuration_offline_matrix.sections.grants | default(omit) }}'
+    auth_roles: '{{ vault_configuration_offline_matrix.sections.auth_roles | default(omit) }}'
+    personal_access: '{{ vault_configuration_offline_matrix.sections.personal_access | default(omit) }}'
+  delegate_to: '{{ vault_configuration_context.context.delegate }}'
+  become: false
+  vars:
+    ansible_connection: '{{ hostvars[inventory_hostname].vault_configuration_context.context.connection }}'
+    ansible_python_interpreter: '{{ hostvars[inventory_hostname].vault_configuration_context.context.interpreter }}'
+  register: vault_configuration_result
+  no_log: true
+  ignore_errors: true
+  changed_when: false

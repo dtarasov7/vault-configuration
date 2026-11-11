@@ -1,48 +1,77 @@
 ---
-- name: pre-req.yml - Require a single execution host
+- name: pre-req.yml - Require a single target after inventory and limit selection
   ansible.builtin.assert:
     that:
       - ansible_play_hosts_all | length == 1
-    fail_msg: Use one play host per Vault/owner and serialize apply jobs in CI.
+    fail_msg: Select exactly one Vault target with hosts or --limit; serialize apply jobs per cluster.
     quiet: true
 
 - name: pre-req.yml - Require flat configuration variables
   ansible.builtin.assert:
     that:
       - vault_configuration_config is not defined
+      - vault_configuration_export is not defined
+      - vault_configuration_execution_host is not defined
       - query('varnames', '^vault_configuration_config_') | difference(vault_configuration_supported_config_variables) | length == 0
-    fail_msg: >-
-      Use the documented vault_configuration_config_* variables instead of vault_configuration_config.
-      Unknown variables: {{ query('varnames', '^vault_configuration_config_') | difference(vault_configuration_supported_config_variables) }}
+      - query('varnames', '^vault_configuration_export_') | difference(vault_configuration_supported_export_variables) | length == 0
+      - query('varnames', '^vault_configuration_matrix_') | difference(['vault_configuration_matrix_source', 'vault_configuration_matrix_destination']) | length == 0
+      - query('varnames', '^vault_configuration_api_') | difference(vault_configuration_supported_api_variables) | length == 0
+    fail_msg: Use documented flat variables; execution_host, connection_address and registry/prune/recovery settings are removed.
     quiet: true
   vars:
     vault_configuration_supported_config_variables:
-    - vault_configuration_config_compatibility_profile
-    - vault_configuration_config_connection_address
-    - vault_configuration_config_connection_allow_insecure_http
-    - vault_configuration_config_connection_ca_file
-    - vault_configuration_config_connection_client_cert
-    - vault_configuration_config_connection_client_key
-    - vault_configuration_config_connection_timeout_seconds
-    - vault_configuration_config_connection_validate_tls
-    - vault_configuration_config_expected_plan_digest
-    - vault_configuration_config_management_adoption
-    - vault_configuration_config_management_deletion_approvals
-    - vault_configuration_config_management_owner
-    - vault_configuration_config_management_policy_prefix
-    - vault_configuration_config_management_prune
-    - vault_configuration_config_management_prune_identities
-    - vault_configuration_config_management_recovery_digest
-    - vault_configuration_config_management_recovery_outcome
-    - vault_configuration_config_management_state_file
-    - vault_configuration_config_mode
-    - vault_configuration_config_mounts
-    - vault_configuration_config_report_destination
-    - vault_configuration_config_safety_allow_destructive_grants
-    - vault_configuration_config_safety_allow_empty_desired
-    - vault_configuration_config_safety_allow_mount_root
-    - vault_configuration_config_safety_max_deletions
-    - vault_configuration_config_safety_protected_entities
-    - vault_configuration_config_safety_protected_groups
-    - vault_configuration_config_safety_protected_policies
-    - vault_configuration_config_schema_version
+      - vault_configuration_config_mode
+      - vault_configuration_config_report_destination
+      - vault_configuration_config_connection_validate_tls
+      - vault_configuration_config_connection_ca_file
+      - vault_configuration_config_connection_client_cert
+      - vault_configuration_config_connection_client_key
+      - vault_configuration_config_connection_timeout_seconds
+      - vault_configuration_config_mounts
+      - vault_configuration_config_management_adoption
+      - vault_configuration_config_management_owner
+      - vault_configuration_config_management_policy_prefix
+      - vault_configuration_config_safety_allow_mount_root
+      - vault_configuration_config_safety_allow_destructive_grants
+      - vault_configuration_config_safety_protected_policies
+      - vault_configuration_config_safety_protected_entities
+      - vault_configuration_config_safety_protected_groups
+      - vault_configuration_config_expected_plan_digest
+    vault_configuration_supported_export_variables:
+      - vault_configuration_export_scope
+      - vault_configuration_export_destination
+      - vault_configuration_export_audit_destination
+      - vault_configuration_export_allow_partial
+      - vault_configuration_export_mounts
+      - vault_configuration_export_auth_mounts
+      - vault_configuration_export_entities
+      - vault_configuration_export_groups
+      - vault_configuration_export_policies
+      - vault_configuration_export_auth_roles
+      - vault_configuration_export_users
+      - vault_configuration_export_ldap
+    vault_configuration_supported_api_variables:
+      - vault_configuration_api_execution
+      - vault_configuration_api_scheme
+      - vault_configuration_api_port
+      - vault_configuration_api_use_loopback
+
+- name: pre-req.yml - Validate API endpoint and controller artifact destinations
+  vault_configuration_report:
+    operation: validate
+    hostname: '{{ inventory_hostname }}'
+    execution: '{{ vault_configuration_api_execution }}'
+    scheme: '{{ vault_configuration_api_scheme }}'
+    port: '{{ vault_configuration_api_port }}'
+    loopback: '{{ vault_configuration_api_use_loopback }}'
+    root: '{{ playbook_dir }}'
+    target_connection: '{{ ansible_connection | default("ssh") }}'
+    target_python: '{{ ansible_python_interpreter | default("auto_silent") }}'
+    controller_python: '{{ ansible_playbook_python }}'
+    mode: '{{ vault_configuration_config_mode }}'
+    matrix_source: '{{ vault_configuration_matrix_source }}'
+    matrix_destination: '{{ vault_configuration_matrix_destination }}'
+    report_destination: '{{ vault_configuration_config_report_destination | default(omit) }}'
+    destination: '{{ vault_configuration_export_destination }}'
+    audit_destination: '{{ vault_configuration_export_audit_destination }}'
+  register: vault_configuration_context

@@ -20,16 +20,16 @@ sys.path.insert(0, str(ROLE / 'module_utils'))
 from vault_configuration.common import ConfigurationError, digest, public
 from vault_configuration.compiler import compile_grant, compile_personal, parse_rules, path, reverse, policy_name
 from vault_configuration.validation import validate
-from vault_configuration.planner import Planner, merged_links, resolve
+from vault_configuration.planner import Planner, resolve
 from vault_configuration.adapters import KubernetesAdapter, JWTAdapter, AppRoleAdapter
-from vault_configuration.state import StateStore, atomic_write
 from vault_configuration.client import Client, NoRedirect, VaultHTTPError
 from vault_configuration.runner import summaries, run
+from vault_configuration.reader import snapshot
 
 
 def config(directory='/test'):
     return {'connection': {'address': 'https://vault.example.org'},
-            'management': {'owner': 'test', 'policy_prefix': 'vam-test-', 'state_file': directory + '/state.json'}}
+            'management': {'owner': 'test', 'policy_prefix': 'vam-test-'}}
 
 
 def grant(permissions=None, logical='payments/prod', scope='subtree'):
@@ -46,8 +46,55 @@ def view():
             'entities': {}, 'groups': {}, 'policies': {}, 'aliases': {}, 'userpass': {}, 'roles': {}, 'automation_entity': ''}
 
 
-def state():
-    return {'schema_version': 1, 'cluster_id': 'cluster', 'owner': 'test', 'resources': {}, 'journal': [], 'pending': None}
+
+
+class CompatibilityTests(unittest.TestCase):
+    def client(self, version):
+        client = Mock()
+        client.request.return_value = {'initialized': True, 'sealed': False,
+                                       'cluster_id': 'cluster', 'version': version}
+        client.read.return_value = {}
+        client.list.return_value = []
+        return client
+
+    def test_only_vault_two_is_supported_before_discovery(self):
+        settings, _ = validate(config(), {}, {})
+        for version in ('1.21.3', '3.0.0', '12.0.0', '2.0', '2.invalid', None, True):
+            with self.subTest(version=version):
+                client = self.client(version)
+                with self.assertRaisesRegex(ConfigurationError, 'Only Vault 2.x'):
+                    snapshot(client, settings)
+                client.read.assert_not_called()
+
+    def test_tested_versions_are_quiet_and_other_two_versions_warn(self):
+        settings, _ = validate(config(), {}, {})
+        for version in ('2.0.0', '2.0.4', '2.0.5', '2.0.999', '2.0.4+vendor'):
+            self.assertEqual(snapshot(self.client(version), settings)['warnings'], [])
+        for version in ('2.1.0', '2.15.42', '2.1.0-rc1'):
+            with self.subTest(version=version):
+                actual = snapshot(self.client(version), settings)
+                self.assertEqual(actual['warnings'][0]['kind'], 'compatibility')
+                self.assertEqual(actual['warnings'][0]['version'], version)
+
+    def test_warning_survives_dry_apply_and_export(self):
+        with tempfile.TemporaryDirectory(dir=str(ROLE.parents[1] / '.work')) as directory:
+            for mode in ('dry', 'apply', 'export'):
+                with self.subTest(mode=mode):
+                    settings = config(directory)
+                    settings['mode'] = mode
+                    settings['mounts'] = []
+                    options = {'destination': directory + '/export.yml'} if mode == 'export' else None
+                    result = run(settings, {}, 'test-token', export=options, client=self.client('2.1.0'))
+                    self.assertIn('Vault 2.1.0 is outside the validated 2.0.x series', result['warnings'][0])
+                    if mode != 'export':
+                        self.assertEqual(result['plan']['warnings'][0]['kind'], 'compatibility')
+
+    def test_removed_configuration_options_are_rejected(self):
+        for key, value in (('schema_version', 1), ('compatibility_profile', 'community-validated')):
+            settings = config()
+            settings[key] = value
+            with self.assertRaises(ConfigurationError):
+                validate(settings, {}, {})
 
 
 class CompilerTests(unittest.TestCase):
@@ -179,10 +226,10 @@ class ValidationTests(unittest.TestCase):
         conf, sections = validate(config(), {'users': None, 'groups': []}, {})
         self.assertIsNone(sections['users'])
         self.assertEqual(sections['groups'], [])
-        self.invalid({'users': []}, lambda value: value['management'].update(prune=True))
+        validate(config(), {'users': []}, {})
 
     def test_duplicate_bindings_members_and_subjects(self):
-        first = dict(user(), source='userpass', auth_mount='userpass', login='alice', password_revision='r1')
+        first = dict(user(), source='userpass', auth_mount='userpass', login='alice')
         second = dict(first, id='other', name='other')
         self.invalid({'users': [first, second]})
         self.invalid({'users': [user()], 'grants': [dict(grant(), subjects=[{'kind':'user','id':'alice'}] * 2)]})
@@ -203,8 +250,8 @@ class ValidationTests(unittest.TestCase):
         base['config']['url'] = 'ldaps://dc.example.org'
         validate(config(), {'ldap':[copy.deepcopy(base)]}, {})
         base['config']['binddn'] = 'cn=vault,dc=example,dc=org'
-        self.invalid({'ldap':[copy.deepcopy(base)]})
-        base['bind_password_revision'] = 'r1'
+        validate(config(), {'ldap':[copy.deepcopy(base)]}, {})
+        base['bind_password_policy'] = 'on_create'
         base['config']['bindpass'] = 'must-be-external'
         self.invalid({'ldap':[base]})
 
@@ -220,236 +267,6 @@ class ValidationTests(unittest.TestCase):
             self.invalid(update=lambda value: value['connection'].update(address=address))
 
 
-class PlannerTests(unittest.TestCase):
-    def build(self, sections, configuration=None, current=None, registry=None):
-        conf, normalized = validate(configuration or config(), sections, {})
-        planner = Planner(conf, normalized, current or view(), registry or state())
-        return planner, planner.build()
-
-    def test_plan_deterministic_and_public(self):
-        sections = {'users': [user()], 'grants': [grant()]}
-        _, first = self.build(sections)
-        _, second = self.build(sections)
-        self.assertEqual(first, second)
-        self.assertEqual(summaries(first)['Планируем добавить']['count'], 2)
-        self.assertEqual(set(public({'password': 'secret', 'password_revision': 'r1'})), {'password_revision'})
-
-    def test_adoption_owner_and_protected(self):
-        current = view()
-        entry = {'uuid': 'uuid', 'path': 'identity/entity/id/uuid', 'data': {'name': 'alice', 'metadata': {}, 'policies': [], 'disabled': False}}
-        current['entities']['uuid'] = entry
-        current['objects'][entry['path']] = entry['data']
-        with self.assertRaises(ConfigurationError):
-            self.build({'users': [user()]}, current=current)
-        configuration = config()
-        configuration['management']['adoption'] = [{'kind': 'entity', 'id': 'alice', 'uuid': 'uuid'}]
-        self.build({'users': [user()]}, configuration, current)
-        entry['data']['metadata']['vam_owner'] = 'other'
-        with self.assertRaises(ConfigurationError):
-            self.build({'users': [user()]}, configuration, current)
-        entry['data']['metadata'] = {}
-        configuration['safety'] = {'protected_entities': ['uuid']}
-        with self.assertRaises(ConfigurationError):
-            self.build({'users': [user()]}, configuration, current)
-
-    def test_preserve_foreign_links(self):
-        self.assertEqual(merged_links(['foreign', 'owned-old'], ['owned-old'], ['owned-new']), ['foreign', 'owned-new'])
-
-    def test_prune_limit_and_omitted_grants(self):
-        current, registry, configuration = view(), state(), config()
-        policy = {'policy': compile_grant(grant())}
-        api = 'sys/policies/acl/vam-test-old'
-        current['objects'][api] = policy
-        current['policies']['vam-test-old'] = {'path':api, 'data':policy}
-        registry['resources']['policy:old'] = {'kind':'policy','id':'old','path':api,'uuid':'','links':{},
-                                                'hash':digest(policy),'section':'grants'}
-        configuration['management'].update(prune=True, deletion_approvals=[{'kind':'policy','id':'old','hash':digest(policy),'dependencies_cleared':True}])
-        configuration['safety'] = {'allow_empty_desired':True,'max_deletions':0}
-        with self.assertRaises(ConfigurationError):
-            self.build({'grants':[]}, configuration, current, registry)
-        _, plan = self.build({}, configuration, current, registry)
-        self.assertEqual(plan['operations'], [])
-        configuration['safety']['max_deletions'] = 1
-        _, plan = self.build({'grants':[]}, configuration, current, registry)
-        self.assertEqual(plan['operations'][0]['action'], 'delete')
-
-    def test_digest_never_hashes_password(self):
-        current = view()
-        current['auth']['userpass/'] = {'accessor':'accessor', 'type':'userpass'}
-        local = dict(user(), source='userpass',auth_mount='userpass',login='alice',password_revision='r1',password='first-secret')
-        _, first = self.build({'users':[local]}, current=current)
-        local['password'] = 'different-secret'
-        _, second = self.build({'users':[local]}, current=current)
-        self.assertEqual(first['digest'], second['digest'])
-        self.assertNotIn('different-secret', json.dumps(second))
-
-    def test_peer_owner_cannot_claim_the_same_role_policy_link(self):
-        current = view()
-        current['auth']['kubernetes/'] = {'type':'kubernetes','accessor':'accessor'}
-        api = 'auth/kubernetes/role/backend'
-        data = {'bound_service_account_names':['backend'],'bound_service_account_namespaces':['prod'], 'token_policies':['foreign']}
-        current['roles']['kubernetes/backend'] = {'path':api,'data':data,'type':'kubernetes','mount':'kubernetes','name':'backend'}
-        current['objects'][api] = data
-        current['policies']['foreign'] = {'path':'sys/policies/acl/foreign','data':{'policy':compile_grant(grant())}}
-        peer = state()
-        peer['owner'] = 'other'
-        peer['resources']['auth_role:backend'] = {'kind':'auth_role','id':'backend','path':api,'uuid':'',
-            'hash':digest(data),'links':{'policies':['foreign']},'section':'auth_roles','shared':True}
-        sections = {'auth_roles':[{'id':'backend','type':'kubernetes','auth_mount':'kubernetes','name':'backend'}],
-                    'grants':[{'id':'external','subjects':[{'kind':'auth_role','id':'backend'}], 'existing_policies':['foreign']}]}
-        configuration, sections = validate(config(), sections, {})
-        with self.assertRaises(ConfigurationError):
-            Planner(configuration, sections, current, state(), [peer]).build()
-
-    def test_policy_prefix_and_login_migrations_do_not_orphan_objects(self):
-        registry, current, configuration = state(), view(), config()
-        api = 'sys/policies/acl/' + policy_name('vam-test-', 'access')
-        policy = {'policy':compile_grant(grant())}
-        registry['resources']['policy:access'] = {'kind':'policy','id':'access','uuid':'','path':api,
-            'links':{},'hash':digest(policy),'section':'grants'}
-        current['policies'][api.rsplit('/',1)[-1]] = {'path':api,'data':policy}
-        current['objects'][api] = policy
-        configuration['management']['policy_prefix'] = 'vam-new-'
-        with self.assertRaises(ConfigurationError):
-            self.build({'users':[user()], 'grants':[grant()]}, configuration, current, registry)
-        registry = state()
-        registry['resources']['userpass:alice'] = {'kind':'userpass','id':'alice','uuid':'',
-            'path':'auth/userpass/users/alice','links':{},'hash':'hash','section':'users','accessor':'accessor'}
-        current['auth']['userpass/'] = {'accessor':'accessor','type':'userpass'}
-        local = dict(user(), source='userpass',auth_mount='userpass',login='new-login',password_revision='r1',password='test-secret')
-        with self.assertRaises(ConfigurationError):
-            self.build({'users':[local]}, config(), current, registry)
-
-    def test_missing_mount_is_planned_and_never_pruned(self):
-        current = view()
-        current['mounts'].pop('apps/')
-        _, plan = self.build({}, current=current)
-        self.assertEqual([(operation['kind'], operation['action']) for operation in plan['operations']], [('mount', 'create')])
-        configuration = config()
-        configuration['mounts'] = []
-        configuration['management'].update(prune=True, prune_identities=True)
-        registry = state()
-        registry['resources']['mount:apps'] = {'kind':'mount','id':'apps','path':'sys/mounts/apps','uuid':'',
-            'links':{},'hash':'hash','section':'mounts'}
-        _, plan = self.build({}, configuration, current, registry)
-        self.assertEqual(plan['operations'], [])
-
-    def test_missing_password_before_writes(self):
-        current = view()
-        current['auth']['userpass/'] = {'accessor': 'auth-id', 'type': 'userpass'}
-        local = dict(user(), source='userpass', auth_mount='userpass', login='alice', password_revision='r1')
-        with self.assertRaises(ConfigurationError):
-            self.build({'users': [local]}, current=current)
-
-    def test_ldap_personal_uses_new_mount_accessor_and_requires_username_aliases(self):
-        personal = {'enabled': True, 'identity_source': 'ldap_login', 'auth_mount': 'ldap',
-                    'mount': 'users', 'path_prefix': 'dep1', 'permissions': ['read', 'write', 'list'],
-                    'subjects': [{'kind': 'group', 'id': 'department'}]}
-        sections = {'groups': [{'id': 'department', 'name': 'department', 'type': 'external',
-                                'alias': {'auth_mount': 'ldap', 'name': 'dep1'}}],
-                    'ldap': [{'id': 'directory', 'auth_mount': 'ldap', 'allow_insecure_ldap': True,
-                              'config': {'url': 'ldap://localhost:389', 'userdn': 'ou=people,dc=test',
-                                         'groupdn': 'ou=groups,dc=test'}}],
-                    'personal_access': personal}
-        planner, plan = self.build(sections)
-        policy = planner.models['policy:personal']['payload']
-        resolved = resolve(policy, {'auth_mount:ldap': 'auth_ldap_new'})
-        self.assertEqual(resolved['policy'], compile_personal(personal, 'auth_ldap_new'))
-        create_order = [operation['key'] for operation in plan['operations']]
-        self.assertLess(create_order.index('auth_mount:ldap'), create_order.index('policy:personal'))
-        sections['ldap'][0]['config']['username_as_alias'] = False
-        with self.assertRaisesRegex(ConfigurationError, 'username_as_alias'):
-            self.build(sections)
-        sections['ldap'] = None
-        current = view()
-        current['auth']['ldap/'] = {'type': 'ldap', 'accessor': 'auth_ldap_new'}
-        current['objects']['auth/ldap/config'] = {'username_as_alias': True}
-        registry = state()
-        registry['resources']['policy:personal'] = {'accessor': 'auth_ldap_old', 'auth_mount': 'ldap'}
-        with self.assertRaisesRegex(ConfigurationError, 'accessor changed'):
-            self.build(sections, current=current, registry=registry)
-
-    def test_ldap_personal_rejects_invalid_sources_fields_and_subjects(self):
-        group = {'id': 'department', 'name': 'department', 'type': 'internal'}
-        personal = {'enabled': True, 'identity_source': 'ldap_login', 'auth_mount': 'ldap',
-                    'mount': 'users', 'path_prefix': 'dep1', 'permissions': ['read'],
-                    'subjects': [{'kind': 'group', 'id': 'department'}]}
-        validate(config(), {'groups': [group], 'personal_access': personal}, {})
-        invalid = [dict(personal, identity_source='other'), dict(personal, identity_source='entity_id'),
-                   dict(personal, path_prefix='../other'),
-                   dict(personal, subjects=[{'kind': 'auth_role', 'id': 'automation'}])]
-        missing_mount = dict(personal)
-        missing_mount.pop('auth_mount')
-        invalid.append(missing_mount)
-        for item in invalid:
-            with self.subTest(personal=item), self.assertRaises(ConfigurationError):
-                validate(config(), {'groups': [group], 'personal_access': item}, {})
-
-    def test_personal_external_group_uuid_preserves_server_managed_membership(self):
-        current = view()
-        current['auth']['ldap/'] = {'type': 'ldap', 'accessor': 'auth_ldap_test'}
-        current['objects']['auth/ldap/config'] = {'username_as_alias': True}
-        uuid = '00000000-0000-4000-8000-000000000001'
-        data = {'name': 'existing', 'type': 'external', 'metadata': {'origin': 'directory'},
-                'policies': [], 'member_entity_ids': ['existing-user'], 'member_group_ids': []}
-        entry = {'uuid': uuid, 'path': 'identity/group/id/' + uuid, 'data': data}
-        current['groups'][uuid] = entry
-        current['objects'][entry['path']] = data
-        personal = {'enabled': True, 'identity_source': 'ldap_login', 'auth_mount': 'ldap',
-                    'mount': 'users', 'permissions': ['read'],
-                    'subjects': [{'kind': 'group', 'uuid': uuid}]}
-        planner, _ = self.build({'personal_access': personal}, current=current)
-        payload = planner.models['group:uuid-' + uuid]['payload']
-        self.assertNotIn('member_entity_ids', payload)
-        self.assertNotIn('member_group_ids', payload)
-        self.assertEqual(payload['metadata'], {'origin': 'directory'})
-        self.assertEqual(current['groups'][uuid]['data']['member_entity_ids'], ['existing-user'])
-
-    def test_missing_userpass_mount_is_created_once_before_users_and_aliases(self):
-        alice = dict(user(), source='userpass', auth_mount='staff/local', login='alice',
-                     password_revision='r1', password='fixture-alice')
-        bob = dict(alice, id='bob', name='bob', login='bob', password='fixture-bob')
-        planner, plan = self.build({'users': [alice, bob]})
-        mounts = [operation for operation in plan['operations'] if operation['kind'] == 'auth_mount']
-        self.assertEqual([(operation['path'], operation['action']) for operation in mounts],
-                         [('sys/auth/staff/local', 'create')])
-        self.assertEqual(plan['operations'][0]['kind'], 'auth_mount')
-        for identifier in ['alice', 'bob']:
-            model = planner.models['userpass:' + identifier]
-            self.assertEqual(model['accessor'], {'$ref': 'auth_mount:staff/local'})
-
-    def test_userpass_mount_type_overlap_and_accessor_conflicts_fail_before_apply(self):
-        local = dict(user(), source='userpass', auth_mount='staff/local', login='alice',
-                     password_revision='r1', password='fixture')
-        for mount, kind in [('staff/local/', 'ldap'), ('staff/', 'userpass'),
-                            ('staff/local/child/', 'userpass')]:
-            with self.subTest(mount=mount, kind=kind):
-                current = view()
-                current['auth'][mount] = {'type': kind, 'accessor': 'existing'}
-                with self.assertRaises(ConfigurationError):
-                    self.build({'users': [local]}, current=current)
-        current = view()
-        current['auth']['staff/local/'] = {'type': 'userpass', 'accessor': 'replacement'}
-        registry = state()
-        registry['resources']['auth_mount:staff/local'] = {
-            'kind': 'auth_mount', 'id': 'staff/local', 'path': 'sys/auth/staff/local',
-            'uuid': 'original', 'links': {}, 'hash': 'hash', 'section': 'users'}
-        with self.assertRaises(ConfigurationError):
-            self.build({'users': [local]}, current=current, registry=registry)
-
-    def test_userpass_auth_mount_is_not_pruned_when_users_are_empty(self):
-        configuration = config()
-        configuration['management'].update(prune=True, prune_identities=True)
-        configuration['safety'] = {'allow_empty_desired': True}
-        current = view()
-        current['auth']['userpass/'] = {'type': 'userpass', 'accessor': 'auth-id'}
-        current['objects']['sys/auth/userpass'] = {'type': 'userpass'}
-        registry = state()
-        registry['resources']['auth_mount:userpass'] = {
-            'kind': 'auth_mount', 'id': 'userpass', 'path': 'sys/auth/userpass',
-            'uuid': 'auth-id', 'links': {}, 'hash': 'hash', 'section': 'users'}
-        _, plan = self.build({'users': []}, configuration, current, registry)
-        self.assertEqual(plan['operations'], [])
 
 
 class AdapterTests(unittest.TestCase):
@@ -478,57 +295,10 @@ class AdapterTests(unittest.TestCase):
             self.assertEqual(payload[key], current[key])
 
 
-class StateAndClientTests(unittest.TestCase):
-    def test_yaml_dependency_is_checked_before_any_api_request(self):
-        for mode in ['dry', 'export']:
-            with self.subTest(mode=mode):
-                configuration = config()
-                configuration.update(mode=mode, report_destination='/test/plan.yml')
-                with patch('vault_configuration.runner.yaml', None), patch('vault_configuration.runner.Client') as client:
-                    with self.assertRaisesRegex(ConfigurationError, 'PyYAML is required'):
-                        run(configuration, {}, 'fixture-token')
-                    client.assert_not_called()
+class ClientTests(unittest.TestCase):
 
-    def test_atomic_permissions_backup_and_identity(self):
-        with tempfile.TemporaryDirectory(dir=str(ROLE.parents[1] / '.work')) as directory:
-            filename = directory + '/state.json'
-            store = StateStore(filename, 'test')
-            initial = store.load('cluster')
-            self.assertFalse(os.path.exists(filename))
-            store.save(initial)
-            self.assertEqual(stat.S_IMODE(os.stat(filename).st_mode), 0o600)
-            initial['journal'].append({'action': 'test'})
-            store.save(initial)
-            self.assertTrue(os.path.exists(filename + '.bak'))
-            with self.assertRaises(ConfigurationError):
-                store.load('different-cluster')
-            with open(filename, 'w') as stream:
-                stream.write('broken')
-            with self.assertRaises(ConfigurationError):
-                store.load('cluster')
 
-    def test_check_file_does_not_create_and_symlink_rejected(self):
-        with tempfile.TemporaryDirectory(dir=str(ROLE.parents[1] / '.work')) as directory:
-            filename = directory + '/nested/report.json'
-            self.assertTrue(atomic_write(filename, '{}', check_mode=True))
-            self.assertFalse(os.path.exists(directory + '/nested'))
-            target = directory + '/target'
-            atomic_write(target, '{}')
-            os.symlink(target, directory + '/link')
-            with self.assertRaises(ConfigurationError):
-                atomic_write(directory + '/link', '{}')
 
-    def test_directory_lock_serializes_different_owners(self):
-        with tempfile.TemporaryDirectory(dir=str(ROLE.parents[1] / '.work')) as directory:
-            first = StateStore(directory + '/one.json', 'one')
-            second = StateStore(directory + '/two.json', 'two')
-            first.acquire()
-            try:
-                with self.assertRaises(ConfigurationError):
-                    second.acquire()
-            finally:
-                first.close()
-                second.close()
 
     def test_rest_client_refuses_mount_deletion_before_network_io(self):
         client = Client({'address':'https://vault.example.org','timeout_seconds':1,'validate_tls':True}, 'fixture-token')

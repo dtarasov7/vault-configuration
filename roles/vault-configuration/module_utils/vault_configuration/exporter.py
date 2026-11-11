@@ -6,15 +6,15 @@ from .compiler import reverse
 from .reader import OWNER_KEY, ID_KEY
 from .adapters import policies, ADAPTERS
 from .validation import TOKEN_FIELDS
+from .ownership import live_resources
 
 
-def export_configuration(view, state, config, options):
+def export_configuration(view, config, options):
     """Reconstruct portable inventory variables and a separate audit.
     RU: Восстановить переносимые переменные инвентаря и отдельный аудит.
 
     Args:
         view (dict): Vault snapshot / снимок состояния Vault.
-        state (dict): Owner registry and pending journal / реестр владельца и журнал незавершённой операции.
         config (dict): Role configuration / настройки роли.
         options (dict): Export scope and loss handling / область экспорта и обработка потери смысла.
 
@@ -32,7 +32,7 @@ def export_configuration(view, state, config, options):
     audit = {'cluster_id': view['cluster_id'], 'owner': owner, 'unsupported': [], 'dependencies': [],
              'objects': [], 'partial': False}
     selected = {'entity': {}, 'group': {}, 'auth_role': {}}
-    resources = state['resources']
+    resources = live_resources(view, config)
     records_by_path = {record['path']: record for record in resources.values()}
     accessors = {details['accessor']: mount.rstrip('/') for mount, details in view['auth'].items()}
 
@@ -144,7 +144,6 @@ def export_configuration(view, state, config, options):
                 record = records_by_path.get(local['path'], {})
                 user.update(source='userpass', auth_mount=mount, login=data['name'],
                             password="{{ vault_configuration_passwords.get(%r, '') }}" % item['id'],
-                            password_revision=record.get('password_revision') or 'export-1',
                             password_policy=record.get('password_policy', 'on_create'),
                             token_parameters={key: value for key, value in local['data'].items() if key in TOKEN_FIELDS})
                 if local['data'].get('token_policies'):
@@ -208,7 +207,6 @@ def export_configuration(view, state, config, options):
             continue
         users.append({'id': identifier, 'name': login, 'source': 'userpass', 'auth_mount': mount, 'login': login,
                       'password': "{{ vault_configuration_passwords.get(%r, '') }}" % identifier,
-                      'password_revision': record.get('password_revision') or 'export-1',
                       'password_policy': record.get('password_policy', 'on_create'),
                       'token_parameters': {key: value for key, value in local['data'].items() if key in TOKEN_FIELDS}})
     if users:
@@ -293,7 +291,7 @@ def export_configuration(view, state, config, options):
                 configuration[field] = '{{ ' + repr(value) + ' }}'
         item = {'id': identifier, 'auth_mount': mount, 'config': configuration}
         if data.get('binddn'):
-            item['bind_password_revision'] = record.get('password_revision') or 'export-1'
+            item['bind_password_policy'] = 'on_create'
         if any(url.strip().startswith('ldap://') for url in data.get('url', '').split(',')) and not data.get('starttls'):
             item['allow_insecure_ldap'] = True
         ldap_integrations.append(item)

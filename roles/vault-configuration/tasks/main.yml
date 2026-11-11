@@ -3,6 +3,6 @@
   ansible.builtin.import_tasks: pre-req.yml
   tags: [always, pre-req]
 
-- name: main.yml - Plan, apply or export API configuration
+- name: main.yml - Plan, apply, export or build an access matrix
   ansible.builtin.import_tasks: config.yml
   tags: [config]
