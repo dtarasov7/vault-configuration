@@ -65,7 +65,7 @@ def validate_ldap(items):
                   not origin.password and origin.path in {'', '/'} and not origin.query and not origin.fragment,
                   'LDAP URL must contain LDAP(S) origins without credentials')
             check(origin.scheme == 'ldaps' or config.get('starttls') is True or item.get('allow_insecure_ldap') is True,
-                  'LDAP requires LDAPS/StartTLS or explicit allow_insecure_ldap for tests')
+                  'Plain LDAP without StartTLS requires explicit allow_insecure_ldap: true')
         for key in ('userattr', 'groupattr'):
             if key in config:
                 config[key] = config[key].lower()

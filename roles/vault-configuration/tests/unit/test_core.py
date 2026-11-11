@@ -188,9 +188,18 @@ class ValidationTests(unittest.TestCase):
         self.invalid({'users': [user()], 'grants': [dict(grant(), subjects=[{'kind':'user','id':'alice'}] * 2)]})
         self.invalid({'users': [user()], 'groups': [{'id':'dev','name':'dev','type':'internal','members':['alice','alice']}]})
 
-    def test_ldap_requires_secure_transport_revision_and_known_fields(self):
+    def test_ldap_transport_choice_revision_and_known_fields(self):
         base = {'id':'ad','auth_mount':'ad','config':{'url':'ldap://dc.example.org','userdn':'dc=example,dc=org','groupdn':'dc=example,dc=org'}}
         self.invalid({'ldap':[copy.deepcopy(base)]})
+        plain = copy.deepcopy(base)
+        plain['auth_mount'] = 'ldap'
+        plain['config']['url'] = 'ldap://dc.example.org:3268'
+        plain['config']['starttls'] = False
+        plain['allow_insecure_ldap'] = True
+        validate(config(), {'ldap':[plain]}, {})
+        starttls = copy.deepcopy(base)
+        starttls['config']['starttls'] = True
+        validate(config(), {'ldap':[starttls]}, {})
         base['config']['url'] = 'ldaps://dc.example.org'
         validate(config(), {'ldap':[copy.deepcopy(base)]}, {})
         base['config']['binddn'] = 'cn=vault,dc=example,dc=org'

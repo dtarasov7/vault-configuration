@@ -2,6 +2,7 @@
 
 ## 1.1.0 — 2026-11-10
 
+- Changed the AD example auth path and aliases from `ad` to `ldap`, using `ldap://...:3268`. Explicit `allow_insecure_ldap: true` is supported in any environment, including production; removed test-only wording. Existing mounts are not moved or deleted.
 - Added safe transport diagnostics for DNS, connectivity, timeouts, TLS and certificate verification with verify_code. Messages include TLS validation settings, CA source, timeout and disabled proxy use without exposing secrets or raw exception text.
 - CA/client certificate/key loading failures identify the stage and safe reason; HTTP error and uncertain-write recovery semantics are preserved.
 

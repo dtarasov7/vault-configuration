@@ -8,11 +8,14 @@ vault_configuration_ldap_passwords:
   corporate-ad: "{{ vault_ad_bind_password }}"
 vault_configuration_ldap:
   - id: corporate-ad
-    auth_mount: ad
+    auth_mount: ldap
     bind_password_revision: initial-1
+    # Plain LDAP is an explicit inventory choice, including production environments.
+    # RU: Обычный LDAP явно выбирается в инвентаре, в том числе для production.
+    allow_insecure_ldap: true
     config:
-      url: ldaps://dc1.example.org:636,ldaps://dc2.example.org:636
-      certificate: "{{ lookup('file', 'certs/ad-ca.pem') }}"
+      url: ldap://dc1.example.org:3268,ldap://dc2.example.org:3268
+      starttls: false
       insecure_tls: false
       tls_min_version: tls12
       tls_max_version: tls13
@@ -33,13 +36,13 @@ vault_configuration_groups:
     name: payments-prod-ad
     type: external
     alias:
-      auth_mount: ad
+      auth_mount: ldap
       name: payments-prod
   - id: infra-admins-ad
     name: infra-admins-ad
     type: external
     alias:
-      auth_mount: ad
+      auth_mount: ldap
       # Existing AD group cn; lowercase because case_sensitive_names is false.
       # RU: cn существующей группы AD; нижний регистр при case_sensitive_names: false.
       name: infra-admins
