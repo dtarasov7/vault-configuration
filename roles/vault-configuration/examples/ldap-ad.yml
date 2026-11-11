@@ -2,6 +2,9 @@
 # Include alongside your flat connection/owner settings. Directory entries already exist in AD.
 # Explicitly allow whole-mount grants and irreversible KV operations in this example.
 # RU: Явно разрешаем права на весь mount и необратимые операции KV в этом примере.
+# Missing KV v2 mounts are created; existing mounts are never removed.
+# RU: Отсутствующие KV v2 mounts создаются; существующие не удаляются.
+vault_configuration_config_mounts: [certs, infra, apps, cicd, users, users-xz]
 vault_configuration_config_safety_allow_mount_root: true
 vault_configuration_config_safety_allow_destructive_grants: true
 vault_configuration_ldap_passwords:
@@ -58,18 +61,24 @@ vault_configuration_groups:
       # Existing AD group cn; lowercase because case_sensitive_names is false.
       # RU: cn существующей группы AD; нижний регистр при case_sensitive_names: false.
       name: infra-admins
-  - id: all-ad-users
-    name: all-ad-users
+  # These groups must already exist in AD and be discoverable by groupdn/groupfilter.
+  # RU: Группы должны существовать в AD и находиться через groupdn/groupfilter.
+  - id: opensource-admins-ad
+    name: opensource-admins-ad
     type: external
-    alias:
-      auth_mount: ldap
-      # Existing AD group containing ALL intended users (nested members are supported).
-      # RU: Существующая группа AD со ВСЕМИ нужными пользователями, в том числе через вложенные группы.
-      # It must be found under groupdn by groupfilter; do not assume Domain Users is found:
-      # primary-group membership is not expressed by AD's member attribute.
-      # RU: Группа должна находиться через groupdn/groupfilter; не заменяйте автоматически на Domain Users:
-      # членство в primary group не представлено атрибутом member в AD.
-      name: vault-users
+    alias: {auth_mount: ldap, name: opensource-admins}
+  - id: db-admins-ad
+    name: db-admins-ad
+    type: external
+    alias: {auth_mount: ldap, name: db-admins}
+  - id: linux-admins-ad
+    name: linux-admins-ad
+    type: external
+    alias: {auth_mount: ldap, name: linux-admins}
+  - id: xz-admins-ad
+    name: xz-admins-ad
+    type: external
+    alias: {auth_mount: ldap, name: xz-admins}
 vault_configuration_grants:
   - id: payments-prod-ad-read
     subjects: [{kind: group, id: payments-prod-ad}]
@@ -85,20 +94,31 @@ vault_configuration_grants:
         scope: subtree
         permissions: all
 
-# Every member of AD vault-users gets all KV v2 operations ONLY within their own subtree.
-# RU: Каждый участник AD vault-users получает все операции KV v2 в своём поддереве.
-# Log in with the short sAMAccountName (alice, not DOMAIN\alice or alice@example.org).
-# RU: Вход — по короткому sAMAccountName: alice, а не DOMAIN\alice или alice@example.org.
-# alice → users/alice/*; bob → users/bob/*. No inventory users or previous logins are needed.
-# RU: Пользователей не нужно перечислять или заранее аутентифицировать в Vault.
-# Mount users must be present in config_mounts (it is included by default).
-# RU: Mount users должен входить в config_mounts (по умолчанию уже входит).
+# Personal policies use the short LDAP login without enumerating users.
+# RU: Персональные политики используют короткий LDAP-логин без перечисления пользователей.
+# alice → users/alice/* for opensource-admins/db-admins; bob → users-xz/bob/* for xz-admins.
+# RU: Для linux-admins домашняя политика не назначается. Это отсутствие разрешения, не deny:
+# членство также в opensource-admins/db-admins даст доступ users/<login>/*.
+# EN: linux-admins alone grants no home access; overlapping group memberships combine rights.
+# Log in as alice, not DOMAIN\alice or alice@example.org. No previous logins are needed.
+# RU: Входите как alice, а не DOMAIN\alice или alice@example.org; предварительный вход не нужен.
 vault_configuration_personal_access:
-  enabled: true
-  identity_source: ldap_login
-  auth_mount: ldap
-  mount: users
-  path_prefix: ""
-  subjects:
-    - {kind: group, id: all-ad-users}
-  permissions: all
+  - id: standard-home
+    enabled: true
+    identity_source: ldap_login
+    auth_mount: ldap
+    mount: users
+    path_prefix: ""
+    subjects:
+      - {kind: group, id: opensource-admins-ad}
+      - {kind: group, id: db-admins-ad}
+    permissions: all
+  - id: xz-home
+    enabled: true
+    identity_source: ldap_login
+    auth_mount: ldap
+    mount: users-xz
+    path_prefix: ""
+    subjects:
+      - {kind: group, id: xz-admins-ad}
+    permissions: all

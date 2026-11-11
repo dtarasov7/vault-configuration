@@ -1,6 +1,6 @@
 # vault-configuration
 
-Version: [1.3.0](VERSION). Stateless Ansible configuration of Vault KV v2 mounts, Identity, userpass, LDAP/AD, ACLs and existing AppRole/Kubernetes/JWT/OIDC roles. The role never installs Vault or reads application KV data.
+Version: [1.4.0](VERSION). Stateless Ansible configuration of Vault KV v2 mounts, Identity, userpass, LDAP/AD, ACLs and existing AppRole/Kubernetes/JWT/OIDC roles. The role never installs Vault or reads application KV data.
 
 ## Targets and execution
 
@@ -97,9 +97,22 @@ AD uses samaccountname, groupattr cn and nested-group matching rule 1.2.840.1135
 
 LDAP `config.certificate` remains supported. Supply X.509 PEM CA **contents**, for example `certificate: "{{ lookup('file', playbook_dir ~ '/files/ad-ca-chain.pem') }}"`, or an inline YAML PEM block. The file is read on the controller; Vault uses the supplied contents to verify AD during LDAPS/StartTLS with `insecure_tls: false`. An empty certificate uses the Vault server's system trust store. This setting is independent of the API client's `vault_configuration_config_connection_ca_file`. Plain LDAP with starttls:false does not use it. The AD example retains plain LDAP and documents optional LDAPS/StartTLS settings. See [LDAP API](https://developer.hashicorp.com/vault/api-docs/auth/ldap).
 
-The [AD example](examples/ldap-ad.yml) grants all 11 personal KV v2 permissions with an empty path_prefix: alice gets users/alice/* and bob gets users/bob/*. The policy is assigned to external Identity group all-ad-users, aliased to **an existing AD group vault-users containing all intended users**. The group must be discoverable through groupdn/groupfilter. The role does not modify AD memberships; use a suitable explicit/nested-membership group. Do not assume Domain Users works with the example member filter: AD primary-group membership is not represented by member ([Microsoft documentation](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-ada3/e12954a4-6865-4432-94e6-00c310ca87c0)). No inventory users or prior Vault logins are needed.
+The [AD example](examples/ldap-ad.yml) now illustrates multiple home policies:
 
-Use short sAMAccountName logins (alice), not DOMAIN\alice or UPN: username_as_alias:true uses the login as the personal path component; use lowercase short logins consistently with the personal directory names. Full permissions cover secrets under users/alice/, including irreversible version/metadata deletion. They do not grant other users' paths, parent LIST or a separate secret at users/alice. KV directories are virtual; the first secret can be users/alice/mail. Other policies may broaden access.
+| AD group | Member's home path |
+|---|---|
+| opensource-admins | users/<short login>/* |
+| db-admins | users/<short login>/* |
+| linux-admins | No home policy assigned |
+| xz-admins | users-xz/<short login>/* |
+
+personal_access accepts a list of policies with stable unique id values. Each item has its own enabled, identity_source, auth_mount, mount, path_prefix, subjects and permissions. The former single mapping without id retains its original ACL name. The example defines standard-home for the first two groups in users and xz-home for xz-admins in users-xz; both use permissions:all and an empty path_prefix. Include users-xz in config_mounts; missing KV v2 engines are created without deleting existing mounts.
+
+Subject IDs refer to inventory group IDs; each external group's alias must match an existing AD group discoverable through groupdn/groupfilter. The role does not create AD groups or change directory membership. Domain Users is not an automatic replacement: primary-group membership is absent from the member attribute ([Microsoft documentation](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-ada3/e12954a4-6865-4432-94e6-00c310ca87c0)). No inventory users or prior Vault logins are needed.
+
+No assignment to linux-admins means no grant, not an explicit deny. A user who also belongs to db-admins/opensource-admins receives users/<login>/*; xz-admins membership additionally grants users-xz/<login>/*. Other policies may broaden access. Use lowercase short sAMAccountName logins, not DOMAIN\alice or UPN, because username_as_alias:true uses the login for the path. Full rights cover secrets within the personal subtree, not other users' paths, parent LIST or a standalone <mount>/<login> secret. KV directories are virtual.
+
+The list authoritatively controls personal assignments: removing/disabling an item detaches its bindings while preserving policies, secrets and mounts. [] detaches all owned personal assignments; null leaves them unmanaged. Ordinary grants remain independent. The personal- ID prefix is reserved for named personal ACLs and cannot be used by ordinary grants. Migrating a former single policy to a named list retains the detached legacy policy; strict export may require excluding it via export_policies or explicitly enabling partial export. Named personal policies export with their stable IDs; matrix includes every personal policy.
 
 The role uses external Identity Groups and aliases, shown in Access → Groups, not direct auth/ldap/groups mappings. Therefore Authentication methods → ldap → Groups may be empty. Group names need no ldap- prefix. Combine LDAP external subgroups and local users through an internal wrapper group; do not add local users directly to an external group.
 

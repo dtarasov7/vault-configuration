@@ -1,5 +1,9 @@
 # История изменений
 
+## 1.4.0 — 2026-11-11
+
+- Добавлен список именованных personal_access-политик с независимыми mounts/subjects; сохранён прежний словарь. Пример AD разделяет opensource-admins/db-admins (users), linux-admins (без home) и xz-admins (users-xz); поддержаны export/import и matrix.
+
 ## 1.3.0 — 2026-11-11
 
 - Добавлены алиасы permissions: all, read_only и read_write для grants и personal_access; поддержаны строка/смешанные списки, раскрытие до safety-проверок и явные права в export. Пример AD сокращён.

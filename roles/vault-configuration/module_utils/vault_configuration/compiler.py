@@ -29,6 +29,28 @@ ENTITY_TEMPLATE = '{{identity.entity.id}}'
 LDAP_PERSONAL = re.compile(r'^(?:(?P<prefix>.+)/)?\{\{identity\.entity\.aliases\.(?P<accessor>[A-Za-z0-9_-]+)\.name\}\}/\*$')
 
 
+def personal_entries(value):
+    """Read legacy single policy or named policy list / RU: Прочитать одну политику либо список.
+
+    Args:
+        value (dict | list[dict] | None): Personal declarations / персональные политики.
+    Returns:
+        list[dict]: Policies, without mutating the input / политики без изменения входа.
+    """
+    return [] if value is None else value if isinstance(value, list) else [value]
+
+
+def personal_identifier(item):
+    """Keep legacy policy name and namespace named policies / RU: Сохранить прежнее имя и выделить имена новых политик.
+
+    Args:
+        item (dict): Personal policy / персональная политика.
+    Returns:
+        str: Stable policy inventory ID / постоянный ID политики.
+    """
+    return 'personal-' + item['id'] if 'id' in item else 'personal'
+
+
 def expand_permissions(value):
     """Expand permission names and aliases into a sorted, unique operation list.
     RU: Раскрыть права и алиасы в отсортированный список уникальных операций.

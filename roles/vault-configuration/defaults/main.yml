@@ -63,7 +63,7 @@ vault_configuration_groups: null
 vault_configuration_grants: null
 # Существующие AppRole/Kubernetes/JWT/OIDC roles; null — не управлять разделом.
 vault_configuration_auth_roles: null
-# Персональная политика (permissions также принимает алиасы): null — не управлять; {enabled: false} — снять назначения.
+# Персональная политика либо список с id (несколько mounts/групп); null — сохранить, []/{enabled: false} — снять свои назначения.
 vault_configuration_personal_access: null
 # LDAP/AD: [{id, auth_mount, config, ...}]; null — сохранить существующие настройки.
 vault_configuration_ldap: null

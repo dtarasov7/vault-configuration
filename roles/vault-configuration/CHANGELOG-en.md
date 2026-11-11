@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.0 — 2026-11-11
+
+- Added named personal_access lists with independent mounts/subjects while preserving the legacy mapping. The AD example separates opensource/db homes in users, linux with no home assignment, and xz homes in users-xz; export/import and matrix support all policies.
+
 ## 1.3.0 — 2026-11-11
 
 - Added all/read_only/read_write permission aliases for grants and personal_access, scalar/mixed-list syntax, expansion before safety checks and explicit export lists; shortened the AD example.

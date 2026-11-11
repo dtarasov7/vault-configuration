@@ -60,8 +60,8 @@ options:
     type: list
     elements: dict
   personal_access:
-    description: Personal policy using entity_id or ldap_login, with automatically resolved LDAP accessor and optional path_prefix.
-    type: dict
+    description: One personal policy mapping or a list of named policies (id required), using entity_id or ldap_login.
+    type: raw
   export:
     description: Export scope, output files, filters and explicit partial audit mode.
     type: dict
@@ -113,7 +113,7 @@ def main():
         'groups': {'type': 'list', 'elements': 'dict'},
         'grants': {'type': 'list', 'elements': 'dict'},
         'auth_roles': {'type': 'list', 'elements': 'dict'},
-        'personal_access': {'type': 'dict'}, 'export': {'type': 'dict', 'default': {}},
+        'personal_access': {'type': 'raw'}, 'export': {'type': 'dict', 'default': {}},
     }
     module = AnsibleModule(argument_spec=specification, supports_check_mode=True)
     for user in module.params.get('users') or []:

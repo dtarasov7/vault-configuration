@@ -409,3 +409,77 @@ member: uid=alice,ou=people,dc=example,dc=test
             run(self.config(name), {'ldap': self.integration(name)}, self.server.token)
         self.assertNotIn(name + '/', self.client.read('sys/mounts'))
         self.assertNotIn(name + '/', self.client.read('sys/auth'))
+
+    def test_multiple_personal_mounts_by_ldap_groups_and_export_import(self):
+        name = 'multiple-personal'
+        configuration = self.config(name)
+        configuration['mounts'] = ['users', 'users-xz']
+        configuration['safety']['allow_destructive_grants'] = True
+        ldap = self.integration(name)
+        group_users = [('opensource-admins', 'alice'), ('db-admins', 'bob'),
+                       ('linux-admins', 'carol'), ('xz-admins', 'dave')]
+        ldif = ''
+        for login in ('carol', 'dave'):
+            ldif += ('dn: uid=' + login + ',ou=people,dc=example,dc=test\nobjectClass: inetOrgPerson\n'
+                     'cn: ' + login + '\nsn: ' + login + '\nuid: ' + login + '\nuserPassword: fixture-' + login + '\n\n')
+        for group, login in group_users:
+            ldif += ('dn: cn=' + group + ',ou=groups,dc=example,dc=test\nobjectClass: groupOfNames\n'
+                     'cn: ' + group + '\nmember: uid=' + login + ',ou=people,dc=example,dc=test\n\n')
+        subprocess.run(['docker', 'exec', '-i', self.container, 'ldapadd', '-x', '-H', 'ldap://127.0.0.1',
+                        '-D', 'cn=admin,dc=example,dc=test', '-w', 'fixture-admin'],
+                       input=ldif, text=True, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        sections = {'ldap': ldap, 'groups': [
+            {'id': group, 'name': name + '-' + group, 'type': 'external',
+             'alias': {'auth_mount': name, 'name': group}} for group, _ in group_users],
+            'personal_access': [
+                {'id': 'standard-home', 'enabled': True, 'identity_source': 'ldap_login', 'auth_mount': name,
+                 'mount': 'users', 'path_prefix': '', 'permissions': 'all',
+                 'subjects': [{'kind': 'group', 'id': group} for group in ('opensource-admins', 'db-admins')]},
+                {'id': 'xz-home', 'enabled': True, 'identity_source': 'ldap_login', 'auth_mount': name,
+                 'mount': 'users-xz', 'path_prefix': '', 'permissions': 'all',
+                 'subjects': [{'kind': 'group', 'id': 'xz-admins'}]}]}
+        self.assertTrue(run(configuration, sections, self.server.token, ldap_passwords={name: 'fixture-admin'})['changed'])
+        self.assertFalse(run(configuration, sections, self.server.token)['changed'])
+        self.assertIn('users-xz/', self.client.read('sys/mounts'))
+        for login, allowed in [('alice', 'users'), ('bob', 'users'), ('carol', None), ('dave', 'users-xz')]:
+            auth = self.client.request('POST', 'auth/' + name + '/login/' + login, {'password': 'fixture-' + login})['auth']
+            ordinary = Client(self.server.connection, auth['client_token'])
+            for mount in ('users', 'users-xz'):
+                own_path = mount + '/data/' + login + '/mail'
+                if mount == allowed:
+                    ordinary.request('POST', own_path, {'data': {'value': login}})
+                    self.assertEqual(ordinary.read(own_path)['data']['value'], login)
+                    ordinary.request('DELETE', mount + '/metadata/' + login + '/mail')
+                else:
+                    with self.assertRaises(VaultHTTPError): ordinary.request('POST', own_path, {'data': {'value': login}})
+                with self.assertRaises(VaultHTTPError): ordinary.request('POST', mount + '/data/someone-else/mail', {'data': {'value': login}})
+        exported = run(dict(configuration, mode='export'), {}, self.server.token)['_export_variables']
+        self.assertIsInstance(exported['vault_configuration_personal_access'], list)
+        self.assertEqual([entry['id'] for entry in exported['vault_configuration_personal_access']], ['standard-home', 'xz-home'])
+        # grants is independent and must not detach named personal assignments.
+        self.assertFalse(run(configuration, {'grants': []}, self.server.token)['changed'])
+        target_directory = self.directory / 'multiple-personal-target'
+        target_directory.mkdir()
+        target = Server(target_directory)
+        try:
+            from ansible.template import Templar
+            from ansible.parsing.dataloader import DataLoader
+            # Export escapes Go templates for Ansible vars_files; render that layer before direct runner use.
+            rendered_export = Templar(loader=DataLoader(), variables={}).template(exported)
+            imported = {key: rendered_export.get('vault_configuration_' + key) for key in
+                        ('users', 'groups', 'grants', 'personal_access', 'ldap', 'auth_roles')}
+            target_config = dict(configuration, connection=target.connection)
+            bind_passwords = {entry['id']: 'fixture-admin' for entry in imported['ldap']}
+            import_result = run(target_config, imported, target.token, ldap_passwords=bind_passwords)
+            self.assertTrue(import_result['changed'])
+            self.assertFalse(run(target_config, imported, target.token)['changed'])
+            auth = target.client.request('POST', 'auth/' + name + '/login/dave', {'password': 'fixture-dave'})['auth']
+            ordinary = Client(target.connection, auth['client_token'])
+            ordinary.request('POST', 'users-xz/data/dave/imported', {'data': {'value': 'ok'}})
+            with self.assertRaises(VaultHTTPError): ordinary.request('POST', 'users/data/dave/imported', {'data': {'value': 'no'}})
+        finally:
+            target.close()
+        sections['personal_access'] = sections['personal_access'][:1]
+        self.assertTrue(run(configuration, sections, self.server.token)['changed'])
+        self.assertFalse(self.client.read('identity/group/name/' + name + '-xz-admins')['policies'])
+        self.assertIn('users-xz/', self.client.read('sys/mounts'))

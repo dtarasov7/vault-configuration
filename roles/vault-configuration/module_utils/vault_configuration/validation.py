@@ -6,7 +6,7 @@ import re
 from urllib.parse import urlsplit
 
 from .common import check, merge, digest
-from .compiler import path, expand_permissions, SEGMENT
+from .compiler import path, expand_permissions, SEGMENT, personal_entries
 
 DEFAULTS = {
     'mode': 'dry',
@@ -237,6 +237,7 @@ def validate(config, sections, export):
                 name(item['name'], 'auth role name')
             else:
                 fields(item, ['id', 'subjects', 'paths', 'existing_policies', 'discovery_paths'], ['id', 'subjects'], section)
+                check(not item['id'].startswith('personal-'), 'Grant ids beginning with personal- are reserved for named personal policies')
                 typed(item['subjects'], list, 'subjects')
                 check(bool(item['subjects']), 'Grant needs subjects')
                 for entry in item['subjects']:
@@ -311,10 +312,16 @@ def validate(config, sections, export):
     done = set()
     for identifier in indices.get('groups', {}):
         visit(identifier, set(), done)
-    personal = normalized.get('personal_access')
-    if personal is not None:
-        fields(personal, ['enabled', 'mount', 'subjects', 'permissions', 'identity_source', 'auth_mount', 'path_prefix'],
-               ['enabled'], 'personal_access')
+    personal_value = normalized.get('personal_access')
+    check(personal_value is None or isinstance(personal_value, (dict, list)), 'personal_access must be a mapping, list or null')
+    personal_ids = set()
+    for personal in personal_entries(personal_value):
+        fields(personal, ['id', 'enabled', 'mount', 'subjects', 'permissions', 'identity_source', 'auth_mount', 'path_prefix'],
+               ['id', 'enabled'] if isinstance(personal_value, list) else ['enabled'], 'personal_access')
+        if 'id' in personal:
+            name(personal['id'], 'personal.id')
+            check(personal['id'] not in personal_ids, 'Duplicate personal policy id')
+            personal_ids.add(personal['id'])
         typed(personal['enabled'], bool, 'personal.enabled')
         if personal['enabled']:
             check({'mount', 'subjects', 'permissions'} <= set(personal), 'Incomplete personal_access')
@@ -337,7 +344,7 @@ def validate(config, sections, export):
                 allowed = {'user', 'group'} if source == 'ldap_login' else {'user'}
                 check(entry['kind'] in allowed, 'Personal subjects must be users, or groups for ldap_login')
     subjects = [entry for grant in normalized.get('grants') or [] for entry in grant['subjects']]
-    subjects += (personal or {}).get('subjects', [])
+    subjects += [entry for personal in personal_entries(personal_value) if personal['enabled'] for entry in personal.get('subjects', [])]
     for entry in subjects:
         if 'id' in entry:
             section = {'user': 'users', 'group': 'groups', 'auth_role': 'auth_roles'}[entry['kind']]

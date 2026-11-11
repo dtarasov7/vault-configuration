@@ -7,8 +7,8 @@ import json
 import re
 from datetime import datetime, timezone
 
-from .common import check, ConfigurationError
-from .compiler import PERMISSIONS, compile_grant, compile_personal, ENTITY_TEMPLATE
+from .common import check, ConfigurationError, digest
+from .compiler import PERMISSIONS, compile_grant, compile_personal, ENTITY_TEMPLATE, personal_entries, personal_identifier
 from .adapters import policies
 
 # Public, permanent column order; each operation occupies exactly one character.
@@ -272,16 +272,19 @@ def inventory_model(config, sections):
         names = entry.get('existing_policies') or ['grant:' + entry['id']]
         if 'paths' in entry: policy_texts[names[0]] = compile_grant(entry)
         for reference in entry['subjects']: bind(target(reference), names, 'grant:' + entry['id'])
-    personal = sections.get('personal_access') or {}
-    if personal.get('enabled'):
+    for personal in personal_entries(sections.get('personal_access')):
+        if not personal['enabled']:
+            continue
+        identifier = personal_identifier(personal)
+        synthetic_accessor = 'inventory_ldap_' + digest(identifier)[:16]
         accessor = personal.get('auth_mount')
         # Offline accessors may contain '/'; use a safe synthetic accessor and remap alias keys.
         # RU: Для офлайн-шаблона используем безопасный accessor вместо пути auth mount.
         if personal.get('identity_source') == 'ldap_login':
             for item in subjects.values():
-                if accessor in item['aliases']: item['aliases']['inventory_ldap'] = item['aliases'][accessor]
-        policy_texts['personal'] = compile_personal(personal, 'inventory_ldap' if accessor else None)
-        for reference in personal['subjects']: bind(target(reference), ['personal'], 'personal_access')
+                if accessor in item['aliases']: item['aliases'][synthetic_accessor] = item['aliases'][accessor]
+        policy_texts[identifier] = compile_personal(personal, synthetic_accessor if accessor else None)
+        for reference in personal['subjects']: bind(target(reference), [identifier], 'personal_access:' + identifier)
     messages += ['Only declared assignments are shown; null sections and external policies cannot predict live Vault state.',
                  'Inventory UUIDs and LDAP membership are not discovered. Unresolved personal templates remain symbolic.']
     return subjects, policy_texts, messages

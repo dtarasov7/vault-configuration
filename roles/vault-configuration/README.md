@@ -1,6 +1,6 @@
 # vault-configuration
 
-Версия: [1.3.0](VERSION). Ansible-роль декларативной настройки Vault через API: KV v2 mounts, Identity entities/groups/aliases, userpass, LDAP/AD, ACL и назначения существующим AppRole/Kubernetes/JWT/OIDC roles. Роль не устанавливает Vault и не читает содержимое пользовательских KV-секретов.
+Версия: [1.4.0](VERSION). Ansible-роль декларативной настройки Vault через API: KV v2 mounts, Identity entities/groups/aliases, userpass, LDAP/AD, ACL и назначения существующим AppRole/Kubernetes/JWT/OIDC roles. Роль не устанавливает Vault и не читает содержимое пользовательских KV-секретов.
 
 ## Target и место исполнения API
 
@@ -161,11 +161,49 @@ insecure_tls: false
 
 В AD userattr — samaccountname, groupattr — cn; вложенные группы находятся фильтром matching rule 1.2.840.113556.1.4.1941. Groupdn задаётся полным DN базы поиска, groupfilter может ограничивать группы по части cn, но alias.name должен совпасть с результатом groupattr: это не wildcard и обычно не полный DN. При case_sensitive_names:false имена aliases нормализуются в lowercase. Для Go templates используйте Jinja-строку, как в примерах; не позволяйте Ansible вычислять {{.UserDN}}.
 
-В [ldap-ad.yml](examples/ldap-ad.yml) также настроены **все 11 permissions** для личных каталогов без промежуточного префикса: `alice` → `users/alice/*`, `bob` → `users/bob/*`. Шаблон политики — `users/data/{{identity.entity.aliases.<accessor>.name}}/*` и соответствующие пути metadata/delete/undelete/destroy. `path_prefix: ""` убирает `dep1`, используемый в другом примере ниже.
+В [ldap-ad.yml](examples/ldap-ad.yml) показано распределение личных каталогов между несколькими группами:
 
-Политика назначается external Identity group `all-ad-users` с alias `vault-users`. **Группа `vault-users` должна уже существовать в AD и включать всех нужных пользователей**; она должна попадать в `groupdn` и `groupfilter`. Роль не создаёт группу в AD и не добавляет туда участников. Не используйте `Domain Users` как автоматическую замену: текущий фильтр по `member` не учитывает членство через primary group ([описание Microsoft](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-ada3/e12954a4-6865-4432-94e6-00c310ca87c0)). Можно указать другую существующую группу с подходящим явным/вложенным составом. Пользователей в `vault_configuration_users` перечислять не нужно; права заработают при их LDAP-входе, предварительный вход не требуется.
+| Группа AD | Домашний путь участника |
+|---|---|
+| `opensource-admins` | `users/<короткий логин>/*` |
+| `db-admins` | `users/<короткий логин>/*` |
+| `linux-admins` | Домашняя политика не назначается |
+| `xz-admins` | `users-xz/<короткий логин>/*` |
 
-Для совпадения пути с коротким именем входите как `alice` (`sAMAccountName`), а не `DOMAIN\alice` или UPN: при `username_as_alias: true` шаблон берёт логин входа. Используйте короткие логины в нижнем регистре, согласованные с именами личных каталогов. Полные права относятся к секретам **внутри** `users/alice/`, включая уничтожение версий/метаданных; доступ к чужим каталогам, LIST корня `users` и отдельный ключ `users/alice` эта политика не выдаёт. Каталоги KV виртуальные: отдельного создания не требуется, первый секрет может быть `users/alice/mail`. Другие политики пользователя могут расширить доступ.
+Для нескольких независимых политик `vault_configuration_personal_access` принимает список с постоянными уникальными `id`. Прежний словарь одной политики без `id` поддерживается с прежним именем ACL. У каждой политики свои mount, subjects, permissions, auth_mount и path_prefix:
+
+```yaml
+vault_configuration_config_mounts: [certs, infra, apps, cicd, users, users-xz]
+vault_configuration_config_safety_allow_destructive_grants: true
+vault_configuration_personal_access:
+  - id: standard-home
+    enabled: true
+    identity_source: ldap_login
+    auth_mount: ldap
+    mount: users
+    path_prefix: ""
+    subjects:
+      - {kind: group, id: opensource-admins-ad}
+      - {kind: group, id: db-admins-ad}
+    permissions: all
+  - id: xz-home
+    enabled: true
+    identity_source: ldap_login
+    auth_mount: ldap
+    mount: users-xz
+    path_prefix: ""
+    subjects:
+      - {kind: group, id: xz-admins-ad}
+    permissions: all
+```
+
+`subjects[].id` ссылается на `vault_configuration_groups[].id`, а alias этой external Identity group — на реальное имя группы AD. Все четыре группы должны уже существовать в AD и находиться через `groupdn`/`groupfilter`. Роль не меняет их состав в AD. Не используйте `Domain Users` как автоматическую замену: текущий фильтр по `member` не учитывает primary group ([описание Microsoft](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-ada3/e12954a4-6865-4432-94e6-00c310ca87c0)). Пользователей в `vault_configuration_users` перечислять не нужно; предварительный LDAP-вход не требуется.
+
+Отсутствие назначения для `linux-admins` — **не deny**. Участник только этой группы не получает домашнего доступа. Если он также входит в `db-admins` или `opensource-admins`, он получает домашний путь в `users`; при членстве также в `xz-admins` — ещё и в `users-xz`. Другие политики также могут дать доступ. Отсутствующий `users-xz` роль создаёт как KV v2; существующие mounts не удаляются.
+
+Для совпадения пути с коротким именем входите как `alice` (`sAMAccountName`), а не `DOMAIN\alice` или UPN: при `username_as_alias: true` шаблон берёт логин входа. Используйте короткие логины в нижнем регистре, согласованные с именами каталогов. Полные права относятся к секретам **внутри** `users/alice/` либо `users-xz/alice/`, включая уничтожение версий/метаданных; политика не выдаёт чужие каталоги, LIST корня mount и отдельный ключ `<mount>/alice`. Каталоги KV виртуальные: первый секрет может быть `users/alice/mail`.
+
+Список персональных политик задаёт полный набор своих персональных назначений: удаление элемента или `enabled: false` снимает его назначения, сами ACL, секреты и mount сохраняются. `[]` снимает все свои персональные назначения; `null` оставляет их без управления. Обычные grants управляются отдельно и не снимают персональные политики. `id` используется в имени ACL `personal-<id>`; этот префикс зарезервирован для персональных политик и не допускается в ID обычных grants. При переходе со старого словаря на список прежняя policy `personal` остаётся без назначений; strict export может потребовать исключить эту оставшуюся политику фильтром `export_policies` либо явно разрешить partial export. Экспорт новых именованных политик возвращает список с теми же ID, matrix учитывает все политики.
 
 Роль использует **Identity Groups**: внешняя группа и group alias, связанные с directory group. Они видны в Access → Groups; список Authentication methods → ldap → Groups может быть пустым, поскольку прямые auth/ldap/groups mappings роль не создаёт. Префикс ldap- в имени необязателен. Для общей группы локальных и LDAP-пользователей создайте внутреннюю группу с локальными members и внешними member_groups; внешняя группа сама не принимает локальных участников.
 

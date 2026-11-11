@@ -343,7 +343,10 @@
               "id": {
                 "type": "string",
                 "minLength": 1,
-                "pattern": "^[A-Za-z0-9_-][A-Za-z0-9_.-]*$"
+                "pattern": "^[A-Za-z0-9_-][A-Za-z0-9_.-]*$",
+                "not": {
+                  "pattern": "^personal-"
+                }
               },
               "subjects": {
                 "type": "array",
@@ -727,6 +730,10 @@
               "type": "string",
               "pattern": "^(?:[A-Za-z0-9_-][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_-][A-Za-z0-9_.-]*)*)?$",
               "default": ""
+            },
+            "id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-][A-Za-z0-9_.-]*$"
             }
           },
           "required": [
@@ -817,6 +824,232 @@
               }
             }
           ]
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "mount": {
+                "type": "string",
+                "pattern": "^(?:[A-Za-z0-9_-][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_-][A-Za-z0-9_.-]*)*)?$"
+              },
+              "subjects": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "user",
+                        "group",
+                        "auth_role"
+                      ]
+                    },
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "pattern": "^[A-Za-z0-9_-][A-Za-z0-9_.-]*$"
+                    },
+                    "uuid": {
+                      "type": "string",
+                      "minLength": 1,
+                      "format": "uuid"
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ],
+                  "oneOf": [
+                    {
+                      "required": [
+                        "id"
+                      ],
+                      "not": {
+                        "required": [
+                          "uuid"
+                        ]
+                      }
+                    },
+                    {
+                      "required": [
+                        "uuid"
+                      ],
+                      "not": {
+                        "required": [
+                          "id"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                "uniqueItems": true,
+                "minItems": 1
+              },
+              "permissions": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "read",
+                      "write",
+                      "patch",
+                      "list",
+                      "read_metadata",
+                      "update_metadata",
+                      "delete_latest",
+                      "delete_versions",
+                      "undelete_versions",
+                      "destroy_versions",
+                      "delete_metadata",
+                      "all",
+                      "read_only",
+                      "read_write"
+                    ]
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "enum": [
+                        "read",
+                        "write",
+                        "patch",
+                        "list",
+                        "read_metadata",
+                        "update_metadata",
+                        "delete_latest",
+                        "delete_versions",
+                        "undelete_versions",
+                        "destroy_versions",
+                        "delete_metadata",
+                        "all",
+                        "read_only",
+                        "read_write"
+                      ]
+                    },
+                    "uniqueItems": true,
+                    "minItems": 1
+                  }
+                ]
+              },
+              "identity_source": {
+                "type": "string",
+                "enum": [
+                  "entity_id",
+                  "ldap_login"
+                ],
+                "default": "entity_id"
+              },
+              "auth_mount": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_-][A-Za-z0-9_.-]*)*$"
+              },
+              "path_prefix": {
+                "type": "string",
+                "pattern": "^(?:[A-Za-z0-9_-][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_-][A-Za-z0-9_.-]*)*)?$",
+                "default": ""
+              },
+              "id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-][A-Za-z0-9_.-]*$"
+              }
+            },
+            "required": [
+              "id",
+              "enabled"
+            ],
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "enabled": {
+                      "const": true
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "mount",
+                    "subjects",
+                    "permissions"
+                  ]
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "enabled": {
+                      "const": true
+                    }
+                  }
+                },
+                "then": {
+                  "if": {
+                    "properties": {
+                      "identity_source": {
+                        "const": "ldap_login"
+                      }
+                    },
+                    "required": [
+                      "identity_source"
+                    ]
+                  },
+                  "then": {
+                    "required": [
+                      "auth_mount"
+                    ],
+                    "properties": {
+                      "subjects": {
+                        "items": {
+                          "properties": {
+                            "kind": {
+                              "enum": [
+                                "user",
+                                "group"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "else": {
+                    "not": {
+                      "anyOf": [
+                        {
+                          "required": [
+                            "auth_mount"
+                          ]
+                        },
+                        {
+                          "required": [
+                            "path_prefix"
+                          ]
+                        }
+                      ]
+                    },
+                    "properties": {
+                      "subjects": {
+                        "items": {
+                          "properties": {
+                            "kind": {
+                              "const": "user"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "uniqueItems": true
         }
       ]
     },

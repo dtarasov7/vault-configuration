@@ -3,7 +3,7 @@ import copy
 
 from .adapters import ADAPTERS, policies
 from .common import ConfigurationError, check, digest, public, sorted_values
-from .compiler import compile_grant, compile_personal, policy_name
+from .compiler import compile_grant, compile_personal, policy_name, personal_entries, personal_identifier
 from .reader import OWNER_KEY, ID_KEY, accessor, fingerprint
 
 
@@ -316,10 +316,12 @@ class Planner:
                 check(all(name in self.view['policies'] for name in names), 'Existing ACL policy is missing')
             for subject in grant['subjects']:
                 self.attach(subject, names)
-        personal = self.sections.get('personal_access')
-        if personal and personal['enabled']:
-            name = policy_name(self.management['policy_prefix'], 'personal')
-            check('policy:personal' not in self.models, 'Grant id personal is reserved when personal access is enabled')
+        for personal in personal_entries(self.sections.get('personal_access')):
+            if not personal['enabled']:
+                continue
+            identifier = personal_identifier(personal)
+            name = policy_name(self.management['policy_prefix'], identifier)
+            check('policy:' + identifier not in self.models, 'Personal policy id collides with a grant')
             auth_accessor = None
             if personal['identity_source'] == 'ldap_login':
                 mount = personal['auth_mount']
@@ -339,7 +341,7 @@ class Planner:
                 policy = {'$ldap_personal_policy': {'settings': settings, 'accessor': auth_accessor}}
             else:
                 policy = compile_personal(personal, auth_accessor)
-            model = self.add_model('policy', 'personal', self.view['policies'].get(name),
+            model = self.add_model('policy', identifier, self.view['policies'].get(name),
                                    {'policy': policy}, 'personal_access', phase=10)
             model['path'] = 'sys/policies/acl/' + name
             if auth_accessor is not None:
@@ -385,7 +387,7 @@ class Planner:
         personal_name = policy_name(prefix, 'personal')
 
         def controlled(name):
-            if name == personal_name:
+            if name == personal_name or name.startswith(prefix + 'personal-'):
                 return 'personal_access' in self.active_sections
             return name.startswith(prefix) and 'grants' in self.active_sections
 

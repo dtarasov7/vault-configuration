@@ -226,6 +226,7 @@ def export_configuration(view, config, options):
                 elif name != 'default':
                     unsupported('policy', name, 'Protected policy binding cannot be exported')
     grants = []
+    personal_exports = []
     for name in sorted(set(policy_subjects) | selected_policies):
         subjects = sorted(policy_subjects.get(name, []), key=lambda subject: (subject['kind'], subject['id']))
         if not subjects:
@@ -245,8 +246,8 @@ def export_configuration(view, config, options):
         if 'personal' in converted:
             personal = converted['personal']
             allowed_subjects = {'user', 'group'} if personal.get('identity_source') == 'ldap_login' else {'user'}
-            if 'vault_configuration_personal_access' in output or any(subject['kind'] not in allowed_subjects for subject in subjects):
-                unsupported('policy', name, 'Multiple personal policies or incompatible subjects are unsupported')
+            if any(subject['kind'] not in allowed_subjects for subject in subjects):
+                unsupported('policy', name, 'Incompatible personal policy subjects')
                 continue
             if personal.get('identity_source') == 'ldap_login':
                 source_accessor = personal.pop('auth_accessor')
@@ -259,12 +260,27 @@ def export_configuration(view, config, options):
                     unsupported('policy', name, 'Personal policy requires LDAP username_as_alias=true')
                     continue
                 personal['auth_mount'] = mount
-            output['vault_configuration_personal_access'] = dict(personal, subjects=subjects)
+            record = records_by_path.get(view['policies'][name]['path'])
+            identifier = record['id'] if record else 'personal-' + digest(name)[:16]
+            exported = dict(personal, subjects=subjects)
+            if identifier != 'personal':
+                exported['id'] = identifier[len('personal-'):] if identifier.startswith('personal-') else 'policy-' + digest(name)[:16]
+            personal_exports.append(exported)
         else:
             record = records_by_path.get(view['policies'][name]['path'])
             identifier = record['id'] if record else 'policy-' + digest(name)[:16]
             grants.append(dict(converted, id=identifier, subjects=subjects))
         audit['objects'].append({'kind': 'policy', 'name': name, 'hash': digest(view['policies'][name]['data'])})
+    if personal_exports:
+        if len(personal_exports) == 1 and 'id' not in personal_exports[0]:
+            output['vault_configuration_personal_access'] = personal_exports[0]
+        else:
+            # Never silently rename a legacy policy when exporting a named list.
+            # RU: Не переименовываем прежнюю одиночную политику при экспорте списка.
+            check(all('id' in item for item in personal_exports),
+                  'Export includes legacy and named personal policies; detach the legacy policy before exporting the named list')
+            check(len({item['id'] for item in personal_exports}) == len(personal_exports), 'Export personal policy ID collision')
+            output['vault_configuration_personal_access'] = sorted(personal_exports, key=lambda item: item['id'])
     if grants:
         output['vault_configuration_grants'] = grants
     audit['accessors'] = {mount: view['auth'][mount + '/']['accessor'] for mount in sorted(allowed_auth) if mount + '/' in view['auth']}
