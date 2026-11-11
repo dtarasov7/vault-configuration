@@ -1,6 +1,6 @@
 # vault-configuration
 
-Version: [1.2.0](VERSION). Stateless Ansible configuration of Vault KV v2 mounts, Identity, userpass, LDAP/AD, ACLs and existing AppRole/Kubernetes/JWT/OIDC roles. The role never installs Vault or reads application KV data.
+Version: [1.3.0](VERSION). Stateless Ansible configuration of Vault KV v2 mounts, Identity, userpass, LDAP/AD, ACLs and existing AppRole/Kubernetes/JWT/OIDC roles. The role never installs Vault or reads application KV data.
 
 ## Targets and execution
 
@@ -73,11 +73,33 @@ Userpass password_policy and LDAP bind_password_policy default to on_create. Cre
 
 Paths use mount/path/scope exact|subtree. Subtrees include a base rule and /*; exact+list is rejected. Whole-mount access uses path:"", scope:subtree and safety_allow_mount_root:true. destroy_versions/delete_metadata require safety_allow_destructive_grants:true. See [AD full-access example](examples/ldap-ad.yml). Secret rights do not grant mount administration. Ancestor LIST/discovery is explicit and exposes sibling names.
 
+## Permission aliases
+
+Both grants[].paths[].permissions and personal_access.permissions accept a scalar name or a mixed list of operations/aliases:
+
+| Alias | Canonical operations |
+|---|---|
+| `all` | All 11 KV v2 permissions, including irreversible version/metadata deletion |
+| `read_only` | list, read, read_metadata |
+| `read_write` | list, read, read_metadata, write, patch, update_metadata |
+
+Examples: `permissions: all`, `permissions: read_only`, `permissions: [read_only, write]`, `permissions: [read_write, delete_latest]`. read_write includes no delete/undelete/destroy operations. Aliases do not change subjects, mount/path/scope or grant Vault/mount administration.
+
+Aliases expand before safety validation: all requires config_safety_allow_destructive_grants:true; a mount-root grant separately requires config_safety_allow_mount_root:true. All three aliases include list and therefore require subtree scope in grants. For exact scope use explicit operations without list. Overlapping sets are deduplicated; repeated input names remain invalid.
+
+Equivalent aliases and explicit lists produce identical ACLs and plan digests, with no Vault changes when switching representations. Export retains explicit lists; matrix retains its 11 positions. The [AD example](examples/ldap-ad.yml) uses all for infra and personal users/<login>/* access.
+
 ## LDAP/AD and personal paths
 
 Examples: [OpenLDAP](examples/ldap-openldap.yml), [AD](examples/ldap-ad.yml), [personal access](examples/ldap-personal-access.yml), [inventory](examples/inventory.yml). The AD example uses auth path ldap, plain LDAP Global Catalog port 3268, starttls:false and explicit allow_insecure_ldap:true. Plain LDAP is permitted in any environment; LDAPS uses 636/3269, StartTLS uses ldap:// with starttls:true. LDAP certificate/insecure_tls settings are independent of Vault API TLS.
 
 AD uses samaccountname, groupattr cn and nested-group matching rule 1.2.840.113556.1.4.1941. groupdn is a full search-base DN; groupfilter can select partial CNs, but alias.name must exactly match groupattr (lowercase with case_sensitive_names:false). Preserve Go filters through Jinja string literals as in the examples.
+
+LDAP `config.certificate` remains supported. Supply X.509 PEM CA **contents**, for example `certificate: "{{ lookup('file', playbook_dir ~ '/files/ad-ca-chain.pem') }}"`, or an inline YAML PEM block. The file is read on the controller; Vault uses the supplied contents to verify AD during LDAPS/StartTLS with `insecure_tls: false`. An empty certificate uses the Vault server's system trust store. This setting is independent of the API client's `vault_configuration_config_connection_ca_file`. Plain LDAP with starttls:false does not use it. The AD example retains plain LDAP and documents optional LDAPS/StartTLS settings. See [LDAP API](https://developer.hashicorp.com/vault/api-docs/auth/ldap).
+
+The [AD example](examples/ldap-ad.yml) grants all 11 personal KV v2 permissions with an empty path_prefix: alice gets users/alice/* and bob gets users/bob/*. The policy is assigned to external Identity group all-ad-users, aliased to **an existing AD group vault-users containing all intended users**. The group must be discoverable through groupdn/groupfilter. The role does not modify AD memberships; use a suitable explicit/nested-membership group. Do not assume Domain Users works with the example member filter: AD primary-group membership is not represented by member ([Microsoft documentation](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-ada3/e12954a4-6865-4432-94e6-00c310ca87c0)). No inventory users or prior Vault logins are needed.
+
+Use short sAMAccountName logins (alice), not DOMAIN\alice or UPN: username_as_alias:true uses the login as the personal path component; use lowercase short logins consistently with the personal directory names. Full permissions cover secrets under users/alice/, including irreversible version/metadata deletion. They do not grant other users' paths, parent LIST or a separate secret at users/alice. KV directories are virtual; the first secret can be users/alice/mail. Other policies may broaden access.
 
 The role uses external Identity Groups and aliases, shown in Access → Groups, not direct auth/ldap/groups mappings. Therefore Authentication methods → ldap → Groups may be empty. Group names need no ldap- prefix. Combine LDAP external subgroups and local users through an internal wrapper group; do not add local users directly to an external group.
 

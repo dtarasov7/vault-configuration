@@ -17,6 +17,18 @@ vault_configuration_ldap:
       url: ldap://dc1.example.org:3268,ldap://dc2.example.org:3268
       starttls: false
       insecure_tls: false
+      # Trusted CA in X.509 PEM, used by Vault for LDAPS/StartTLS; not a filesystem path.
+      # RU: Доверенный CA в PEM для Vault → AD (LDAPS/StartTLS); это содержимое, а не путь.
+      # Empty: use the Vault server's system trust store. Plain LDAP below does not use TLS.
+      # RU: Пусто — системное доверие сервера Vault. При обычном LDAP ниже TLS не используется.
+      certificate: ""
+      # Optional CA file on the Ansible controller / RU: Необязательный CA-файл на контроллере:
+      # certificate: "{{ lookup('file', playbook_dir ~ '/files/ad-ca-chain.pem') }}"
+      # If supported by AD / RU: Если AD поддерживает TLS, можно заменить URL и starttls:
+      # url: ldaps://dc1.example.org:636,ldaps://dc2.example.org:636
+      # starttls: false
+      # Alternatively use ldap://...:389 with starttls: true.
+      # RU: Альтернатива — ldap://...:389 вместе со starttls: true.
       tls_min_version: tls12
       tls_max_version: tls13
       binddn: CN=svc-vault,OU=Service Accounts,DC=example,DC=org
@@ -46,6 +58,18 @@ vault_configuration_groups:
       # Existing AD group cn; lowercase because case_sensitive_names is false.
       # RU: cn существующей группы AD; нижний регистр при case_sensitive_names: false.
       name: infra-admins
+  - id: all-ad-users
+    name: all-ad-users
+    type: external
+    alias:
+      auth_mount: ldap
+      # Existing AD group containing ALL intended users (nested members are supported).
+      # RU: Существующая группа AD со ВСЕМИ нужными пользователями, в том числе через вложенные группы.
+      # It must be found under groupdn by groupfilter; do not assume Domain Users is found:
+      # primary-group membership is not expressed by AD's member attribute.
+      # RU: Группа должна находиться через groupdn/groupfilter; не заменяйте автоматически на Domain Users:
+      # членство в primary group не представлено атрибутом member в AD.
+      name: vault-users
 vault_configuration_grants:
   - id: payments-prod-ad-read
     subjects: [{kind: group, id: payments-prod-ad}]
@@ -59,15 +83,22 @@ vault_configuration_grants:
       - mount: infra
         path: ""
         scope: subtree
-        permissions:
-          - read
-          - write
-          - patch
-          - list
-          - read_metadata
-          - update_metadata
-          - delete_latest
-          - delete_versions
-          - undelete_versions
-          - destroy_versions
-          - delete_metadata
+        permissions: all
+
+# Every member of AD vault-users gets all KV v2 operations ONLY within their own subtree.
+# RU: Каждый участник AD vault-users получает все операции KV v2 в своём поддереве.
+# Log in with the short sAMAccountName (alice, not DOMAIN\alice or alice@example.org).
+# RU: Вход — по короткому sAMAccountName: alice, а не DOMAIN\alice или alice@example.org.
+# alice → users/alice/*; bob → users/bob/*. No inventory users or previous logins are needed.
+# RU: Пользователей не нужно перечислять или заранее аутентифицировать в Vault.
+# Mount users must be present in config_mounts (it is included by default).
+# RU: Mount users должен входить в config_mounts (по умолчанию уже входит).
+vault_configuration_personal_access:
+  enabled: true
+  identity_source: ldap_login
+  auth_mount: ldap
+  mount: users
+  path_prefix: ""
+  subjects:
+    - {kind: group, id: all-ad-users}
+  permissions: all

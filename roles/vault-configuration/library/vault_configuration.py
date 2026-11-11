@@ -14,6 +14,7 @@ version_added: '1.0.0'
 description:
   - Uses one existing administrative token for every API operation; never reads or writes user KV data.
   - Uses live metadata and policy prefixes; never creates a local registry.
+  - Permissions accept all, read_only and read_write aliases; safety checks apply after expansion.
   - Returns reports/export payloads for controller-side artifact publishing.
 requirements:
   - Python standard library on the API execution host; PyYAML on the Ansible controller.

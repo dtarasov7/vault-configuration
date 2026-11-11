@@ -17,9 +17,38 @@ PERMISSIONS = {
     'destroy_versions': ('destroy', ['update']),
     'delete_metadata': ('metadata', ['delete']),
 }
+# Inventory shortcuts expand to the same canonical operations as explicit lists.
+# RU: Сокращения inventory раскрываются в те же операции, что и явные списки.
+PERMISSION_ALIASES = {
+    'all': tuple(PERMISSIONS),
+    'read_only': ('list', 'read', 'read_metadata'),
+    'read_write': ('list', 'read', 'read_metadata', 'write', 'patch', 'update_metadata'),
+}
 SEGMENT = re.compile(r'^[A-Za-z0-9_-][A-Za-z0-9_.-]*$', re.ASCII)
 ENTITY_TEMPLATE = '{{identity.entity.id}}'
 LDAP_PERSONAL = re.compile(r'^(?:(?P<prefix>.+)/)?\{\{identity\.entity\.aliases\.(?P<accessor>[A-Za-z0-9_-]+)\.name\}\}/\*$')
+
+
+def expand_permissions(value):
+    """Expand permission names and aliases into a sorted, unique operation list.
+    RU: Раскрыть права и алиасы в отсортированный список уникальных операций.
+
+    Args:
+        value (str | list[str]): Permission/alias or a mixed list / право, алиас либо смешанный список.
+    Returns:
+        list[str]: Canonical permissions / канонические права.
+    Raises:
+        ConfigurationError: Empty, duplicate or unknown input / пустой ввод, повторы либо неизвестные права.
+    """
+    values = [value] if isinstance(value, str) else value
+    check(isinstance(values, list) and values and all(isinstance(item, str) for item in values),
+          'permissions must be a nonempty string or list of names')
+    check(len(values) == len(set(values)), 'permissions: duplicates')
+    check(set(values) <= set(PERMISSIONS) | set(PERMISSION_ALIASES), 'Unknown or empty permissions')
+    expanded = set()
+    for item in values:
+        expanded.update(PERMISSION_ALIASES.get(item, (item,)))
+    return sorted(expanded)
 
 
 def path(value, root=False):
@@ -50,7 +79,7 @@ def rules_for(paths, discovery=None, personal=False, personal_template=ENTITY_TE
     """
     rules = {}
     for entry in paths:
-        for permission in entry['permissions']:
+        for permission in expand_permissions(entry['permissions']):
             api, capabilities = PERMISSIONS[permission]
             base = entry['mount'] + '/' + api + '/'
             if personal:

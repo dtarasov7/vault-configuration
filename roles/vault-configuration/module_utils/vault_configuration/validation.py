@@ -6,7 +6,7 @@ import re
 from urllib.parse import urlsplit
 
 from .common import check, merge, digest
-from .compiler import path, PERMISSIONS, SEGMENT
+from .compiler import path, expand_permissions, SEGMENT
 
 DEFAULTS = {
     'mode': 'dry',
@@ -68,11 +68,22 @@ def subject(value):
 
 
 def permissions(value, safety):
-    strings(value, 'permissions')
-    check(bool(value) and set(value) <= set(PERMISSIONS), 'Unknown or empty permissions')
+    """Expand permissions before enforcing destructive-operation safety.
+    RU: Раскрыть права до проверки разрешения необратимых операций.
+
+    Args:
+        value (str | list[str]): Names/aliases / имена прав и алиасов.
+        safety (dict): Safety flags / защитные флаги.
+    Returns:
+        list[str]: Expanded canonical operations / раскрытые канонические операции.
+    Raises:
+        ConfigurationError: Invalid input or destructive rights not allowed / неверный ввод либо запрещённые необратимые права.
+    """
+    expanded = expand_permissions(value)
     check(safety['allow_destructive_grants'] or
-          not set(value) & {'destroy_versions', 'delete_metadata'},
+          not set(expanded) & {'destroy_versions', 'delete_metadata'},
           'Destructive grants need allow_destructive_grants')
+    return expanded
 
 
 def unique(items, location):
@@ -246,7 +257,7 @@ def validate(config, sections, export):
                         check(entry['mount'] in result['mounts'], 'Grant mount is not selected')
                         path(entry['path'], root=result['safety']['allow_mount_root'])
                         choices(entry['scope'], ['exact', 'subtree'], 'scope')
-                        permissions(entry['permissions'], result['safety'])
+                        entry['permissions'] = permissions(entry['permissions'], result['safety'])
                         check('list' not in entry['permissions'] or entry['scope'] == 'subtree', 'exact + list is ambiguous')
                         check(entry['path'] or entry['scope'] == 'subtree', 'Mount root requires subtree')
                     typed(item.setdefault('discovery_paths', []), list, 'discovery_paths')
@@ -317,7 +328,7 @@ def validate(config, sections, export):
             else:
                 check(not {'auth_mount', 'path_prefix'} & set(personal),
                       'auth_mount/path_prefix require personal identity_source=ldap_login')
-            permissions(personal['permissions'], result['safety'])
+            personal['permissions'] = permissions(personal['permissions'], result['safety'])
             typed(personal['subjects'], list, 'personal subjects')
             check(bool(personal['subjects']), 'Personal access needs subjects')
             unique(personal['subjects'], 'personal subjects')

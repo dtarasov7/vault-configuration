@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.3.0 — 2026-11-11
+
+- Added all/read_only/read_write permission aliases for grants and personal_access, scalar/mixed-list syntax, expansion before safety checks and explicit export lists; shortened the AD example.
+- Documented AD config.certificate/CA loading and added full personal users/<short LDAP login>/* access through an encompassing AD group, including TLS and membership prerequisites.
+
 ## 1.2.0 — 2026-11-11
 
 - Added read-only matrix mode: cluster/inventory sources, fixed 11-character LRWPMUDVNXZ cells, dot placeholders, group/LDAP/personal-policy support and controller CSV/notes.

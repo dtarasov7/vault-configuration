@@ -419,24 +419,50 @@
                       ]
                     },
                     "permissions": {
-                      "type": "array",
-                      "items": {
-                        "enum": [
-                          "read",
-                          "write",
-                          "patch",
-                          "list",
-                          "read_metadata",
-                          "update_metadata",
-                          "delete_latest",
-                          "delete_versions",
-                          "undelete_versions",
-                          "destroy_versions",
-                          "delete_metadata"
-                        ]
-                      },
-                      "uniqueItems": true,
-                      "minItems": 1
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "read",
+                            "write",
+                            "patch",
+                            "list",
+                            "read_metadata",
+                            "update_metadata",
+                            "delete_latest",
+                            "delete_versions",
+                            "undelete_versions",
+                            "destroy_versions",
+                            "delete_metadata",
+                            "all",
+                            "read_only",
+                            "read_write"
+                          ]
+                        },
+                        {
+                          "type": "array",
+                          "items": {
+                            "enum": [
+                              "read",
+                              "write",
+                              "patch",
+                              "list",
+                              "read_metadata",
+                              "update_metadata",
+                              "delete_latest",
+                              "delete_versions",
+                              "undelete_versions",
+                              "destroy_versions",
+                              "delete_metadata",
+                              "all",
+                              "read_only",
+                              "read_write"
+                            ]
+                          },
+                          "uniqueItems": true,
+                          "minItems": 1
+                        }
+                      ]
                     }
                   },
                   "required": [
@@ -640,24 +666,50 @@
               "minItems": 1
             },
             "permissions": {
-              "type": "array",
-              "items": {
-                "enum": [
-                  "read",
-                  "write",
-                  "patch",
-                  "list",
-                  "read_metadata",
-                  "update_metadata",
-                  "delete_latest",
-                  "delete_versions",
-                  "undelete_versions",
-                  "destroy_versions",
-                  "delete_metadata"
-                ]
-              },
-              "uniqueItems": true,
-              "minItems": 1
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "read",
+                    "write",
+                    "patch",
+                    "list",
+                    "read_metadata",
+                    "update_metadata",
+                    "delete_latest",
+                    "delete_versions",
+                    "undelete_versions",
+                    "destroy_versions",
+                    "delete_metadata",
+                    "all",
+                    "read_only",
+                    "read_write"
+                  ]
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "enum": [
+                      "read",
+                      "write",
+                      "patch",
+                      "list",
+                      "read_metadata",
+                      "update_metadata",
+                      "delete_latest",
+                      "delete_versions",
+                      "undelete_versions",
+                      "destroy_versions",
+                      "delete_metadata",
+                      "all",
+                      "read_only",
+                      "read_write"
+                    ]
+                  },
+                  "uniqueItems": true,
+                  "minItems": 1
+                }
+              ]
             },
             "identity_source": {
               "type": "string",
